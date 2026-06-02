@@ -1,6 +1,6 @@
 """Default settings for cybergraph-game demos and small simulations."""
 
-NUM_NODES = 12
+NUM_NODES = 13
 NUM_EDGES = 18
 NUM_ENTRY_POINTS = 2
 GRAPH_SEED = 1

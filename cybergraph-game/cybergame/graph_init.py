@@ -4,17 +4,16 @@ import random
 
 import networkx as nx
 
-from .model import ControlState
-from .state import apply_initial_node_attributes
+from .model import apply_initial_node_attributes
 
 
 def random_graph_init(
     num_nodes: int,
     num_edges: int,
     num_entry_points: int,
-    seed: int | None = None,
-    security_level_min: int = 1,
-    security_level_max: int = 3,
+    seed: int | None,
+    security_level_min: int,
+    security_level_max: int,
 ) -> nx.Graph:
     """Create a connected random graph with initial cybersecurity attributes."""
     _validate_random_graph_inputs(num_nodes, num_edges, num_entry_points)
@@ -58,7 +57,7 @@ def random_graph_init(
 def from_networkx_graph(
     graph: nx.Graph,
     entry_points: list | set | None = None,
-    default_security_level: int = 1,
+    default_security_level: int | None = None,
 ) -> nx.Graph:
     """Copy a graph and add the initial cybersecurity node attributes."""
     entry_point_set = set(entry_points or [])
@@ -69,6 +68,8 @@ def from_networkx_graph(
         )
 
     initialized_graph = graph.copy()
+    if default_security_level is None:
+        raise ValueError("default_security_level must be provided explicitly.")
     apply_initial_node_attributes(
         initialized_graph,
         entry_point_set,

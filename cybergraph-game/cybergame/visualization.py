@@ -88,7 +88,7 @@ class GraphLiveView:
     def _on_key_press(self, event) -> None:
         if event.key in {"enter", "return"}:
             self._advance_requested = True
-        elif event.key in {"\u00fc", "q", "escape"}:
+        elif event.key == "q":
             self._quit_requested = True
             plt.close(self.fig)
 
@@ -192,6 +192,6 @@ def _draw_nodes_with_security_rings(
 
 
 def _security_level_for_display(security_level: object) -> int:
-    if security_level in {1, 2, 3}:
+    if isinstance(security_level, int) and security_level > 0:
         return security_level
     return 1
