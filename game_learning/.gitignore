@@ -9,3 +9,4 @@ ppo_cybergraph_defender*
 
 rollout_frames/
 ppo_rollout_frames/
+outputs/

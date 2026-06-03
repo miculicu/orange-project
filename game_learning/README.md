@@ -1,6 +1,8 @@
 # Game Learning
 
 This is a reinforcement-learning starting point for the graph cybersecurity game.
+It is intentionally closer to the mathematical formalization than the existing
+`cybergraph-game` engine:
 
 - graph: `G = (V, E)` with `n = |V|`
 - hidden state: `s in {0, 1}^n`, where `1` means attacker-controlled
@@ -11,6 +13,87 @@ This is a reinforcement-learning starting point for the graph cybersecurity game
 The first environment is single-agent from the defender's perspective. The
 attacker follows a fixed policy `pi_A(A | s, D)`, and a defender RL algorithm
 learns which nodes to reimage from the belief state.
+
+## Configs
+
+Experiments live in `configs/*.toml`. Each config has two blocks:
+
+```toml
+[env]
+name = "path_graph_7"
+graph_type = "path"
+num_nodes = 7
+beta = 0.1
+probe_miss_probability = 0.2
+attacker_cost = 0.05
+defender_cost = 0.5
+max_steps = 50
+max_attack_nodes = 2
+max_defend_nodes = 2
+initial_compromised_probability = 0.0
+
+[training]
+algorithm = "ppo"
+total_timesteps = 10000
+seed = 7
+device = "cpu"
+verbose = 1
+model_name = "ppo_defender"
+output_root = "outputs"
+learning_rate = 0.0003
+n_steps = 2048
+batch_size = 64
+gamma = 0.99
+```
+
+The graph belongs to `[env]` because it determines the observation and action
+spaces. Training settings and output paths belong to `[training]`.
+
+Config-specific outputs are written to:
+
+```text
+outputs/<env.name>/
+```
+
+For the default config, PPO saves to:
+
+```text
+outputs/path_graph_7/ppo_defender.zip
+```
+
+## Quick Start
+
+Run a random non-learned rollout:
+
+```bash
+python examples/random_rollout.py
+```
+
+Train PPO from a config:
+
+```bash
+python examples/train_ppo.py --config configs/path_graph_7.toml
+```
+
+Visualize the trained PPO defender for that same config:
+
+```bash
+python examples/visualize_ppo.py --config configs/path_graph_7.toml
+```
+
+Frames are written to:
+
+```text
+outputs/path_graph_7/ppo_rollout_frames/
+```
+
+Visualize a random-policy rollout baseline:
+
+```bash
+python examples/visual_rollout.py
+```
+
+Baseline frames are written to `rollout_frames/`.
 
 ## Transition Model
 
@@ -46,39 +129,9 @@ b'(s') proportional to
   sum_s b(s) sum_A pi_A(A | s, D) L(Y | A) K^{A,D}(s' | s)
 ```
 
-## Quick Start
-
-```bash
-python examples/random_rollout.py
-```
-
-Visual rollout with saved PNG frames and a Matplotlib live window:
-
-```bash
-python examples/visual_rollout.py
-```
-
-Frames are written to `rollout_frames/`.
-
-Visualize a trained PPO defender after running `examples/train_ppo.py`:
-
-```bash
-python examples/visualize_ppo.py
-```
-
-Frames are written to `ppo_rollout_frames/`.
-
-Optional PPO training with Stable-Baselines3:
-
-```bash
-pip install stable-baselines3
-python examples/train_ppo.py
-```
-
 ## Next Extensions
 
 - restrict attacks to graph-reachable frontier nodes
 - add per-node costs or security levels
 - train the attacker too, then alternate fixed-opponent updates
 - replace the full `2^n` belief vector with a factored or learned belief model
-

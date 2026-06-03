@@ -18,13 +18,13 @@ class GameConfig:
     """Parameters for the binary graph cybersecurity game."""
 
     graph: nx.Graph
-    beta: float | list[float] | np.ndarray = 0.4
-    probe_miss_probability: float = 0.2
+    beta: float | list[float] | np.ndarray = 0.1 #probe success probability
+    probe_miss_probability: float = 0.2 #probability for the defender to not observe a probe
     attacker_cost: float = 0.05
     defender_cost: float = 0.1
     max_steps: int = 50
-    max_attack_nodes: int = 1
-    max_defend_nodes: int | None = 1
+    max_attack_nodes: int = 1 #amount of nodes that can be attacked at the same time
+    max_defend_nodes: int | None = 1 #amount of nodes that can be defended at the same time
     initial_compromised_probability: float = 0.0
 
 
