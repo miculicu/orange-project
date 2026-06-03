@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "game-learning"
+version = "0.1.0"
+description = "Gymnasium environments for graph cybersecurity reinforcement learning."
+requires-python = ">=3.11"
+dependencies = [
+    "gymnasium",
+    "networkx",
+    "numpy",
+]
+
+[project.optional-dependencies]
+ppo = ["stable-baselines3"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["game_learning*"]
