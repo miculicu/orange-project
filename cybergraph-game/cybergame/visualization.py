@@ -1,10 +1,13 @@
 """Visualization helpers for cybergraph-game graphs."""
 
+import textwrap
+
 import matplotlib.pyplot as plt
 import networkx as nx
 
 NODE_SIZE = 650
 SECURITY_RING_STEP = 130
+LOG_FONT_SIZE = 9
 
 
 def draw_graph(
@@ -46,10 +49,18 @@ class GraphLiveView:
         pos: dict | None = None,
     ) -> None:
         self.pos = _complete_layout(graph, pos)
-        self.fig, self.ax = plt.subplots()
+        self.fig, (self.ax, self.log_ax) = plt.subplots(
+            2,
+            1,
+            figsize=(9, 8),
+            gridspec_kw={"height_ratios": [4.5, 1.7]},
+        )
+        self._log_lines: list[str] = []
+        self._log_scroll_from_bottom = 0
         self._advance_requested = False
         self._quit_requested = False
         self.fig.canvas.mpl_connect("key_press_event", self._on_key_press)
+        self.fig.canvas.mpl_connect("scroll_event", self._on_scroll)
         plt.ion()
 
     def update(
@@ -59,14 +70,16 @@ class GraphLiveView:
         status_text: str | None = None,
     ) -> None:
         self.pos = _complete_layout(graph, self.pos)
+        if status_text:
+            self._append_log(status_text)
         title = f"Cybergraph simulation - time step {time_step}"
         _draw_graph_on_ax(
             graph,
             self.pos,
             self.ax,
             title=title,
-            status_text=status_text,
         )
+        self._draw_log_panel()
         self.fig.canvas.draw_idle()
         plt.pause(0.001)
 
@@ -91,6 +104,94 @@ class GraphLiveView:
         elif event.key == "q":
             self._quit_requested = True
             plt.close(self.fig)
+        elif event.key in {"up", "pageup"}:
+            amount = 5 if event.key == "pageup" else 1
+            self._scroll_log(amount)
+        elif event.key in {"down", "pagedown"}:
+            amount = 5 if event.key == "pagedown" else 1
+            self._scroll_log(-amount)
+        elif event.key == "home":
+            self._log_scroll_from_bottom = max(
+                0,
+                len(self._log_lines) - self._visible_log_line_count(),
+            )
+            self._draw_log_panel()
+            self.fig.canvas.draw_idle()
+        elif event.key == "end":
+            self._log_scroll_from_bottom = 0
+            self._draw_log_panel()
+            self.fig.canvas.draw_idle()
+
+    def _on_scroll(self, event) -> None:
+        if event.inaxes is not self.log_ax:
+            return
+        self._scroll_log(3 if event.button == "up" else -3)
+
+    def _append_log(self, status_text: str) -> None:
+        if self._log_lines:
+            self._log_lines.append("")
+        self._log_lines.extend(status_text.splitlines())
+
+    def _scroll_log(self, amount: int) -> None:
+        max_scroll = max(0, len(self._log_lines) - self._visible_log_line_count())
+        self._log_scroll_from_bottom = min(
+            max(self._log_scroll_from_bottom + amount, 0),
+            max_scroll,
+        )
+        self._draw_log_panel()
+        self.fig.canvas.draw_idle()
+
+    def _draw_log_panel(self) -> None:
+        self.log_ax.clear()
+        self.log_ax.set_facecolor("#f7f8fa")
+        for spine in self.log_ax.spines.values():
+            spine.set_edgecolor("#c5c9d1")
+        self.log_ax.set_xticks([])
+        self.log_ax.set_yticks([])
+
+        visible_count = self._visible_log_line_count()
+        max_scroll = max(0, len(self._log_lines) - visible_count)
+        self._log_scroll_from_bottom = min(self._log_scroll_from_bottom, max_scroll)
+
+        bottom = len(self._log_lines) - self._log_scroll_from_bottom
+        top = max(0, bottom - visible_count)
+        visible_lines = self._wrap_log_lines(self._log_lines[top:bottom])
+        visible_lines = visible_lines[-visible_count:]
+        log_text = "\n".join(visible_lines)
+
+        self.log_ax.text(
+            0.015,
+            0.96,
+            log_text,
+            transform=self.log_ax.transAxes,
+            fontsize=LOG_FONT_SIZE,
+            family="monospace",
+            verticalalignment="top",
+        )
+        self.fig.tight_layout()
+
+    def _visible_log_line_count(self) -> int:
+        height_pixels = self.log_ax.get_window_extent().height
+        line_height = LOG_FONT_SIZE * self.fig.dpi / 72 * 1.35
+        return max(3, int(height_pixels / line_height) - 1)
+
+    def _wrap_log_lines(self, lines: list[str]) -> list[str]:
+        width_pixels = self.log_ax.get_window_extent().width
+        char_width = LOG_FONT_SIZE * self.fig.dpi / 72 * 0.62
+        width = max(30, int(width_pixels / char_width) - 2)
+        wrapped_lines: list[str] = []
+        for line in lines:
+            wrapped_lines.extend(
+                textwrap.wrap(
+                    line,
+                    width=width,
+                    subsequent_indent="  ",
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                )
+                or [""]
+            )
+        return wrapped_lines
 
 
 def _complete_layout(graph: nx.Graph, pos: dict | None = None) -> dict:

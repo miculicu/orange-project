@@ -112,6 +112,21 @@ def random_defender_policy_factory(
     return policy
 
 
+def random_reimage_policy_factory(action_probability: float):
+    """Create a static-graph defender policy: reimage known captures or do nothing."""
+
+    def policy(observation: DefenderObservation, rng: random.Random):
+        if rng.random() >= action_probability:
+            return NoAction("defender chose no action")
+        if not observation.known_captured_nodes:
+            return NoAction("no known captured nodes to reimage")
+        return RestoreNode(
+            target=rng.choice(sorted(observation.known_captured_nodes, key=str))
+        )
+
+    return policy
+
+
 def do_nothing_defender_policy(
     observation: DefenderObservation,
     rng: random.Random,

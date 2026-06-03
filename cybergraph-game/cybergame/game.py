@@ -132,8 +132,8 @@ def apply_attacker_action(
         return ActionResult(
             actor=Actor.ATTACKER,
             action=action,
-            success=False,
-            reason=action.reason,
+            success=True,
+            reason="",
         )
     if not isinstance(action, AttackNode):
         return ActionResult(
@@ -180,7 +180,7 @@ def apply_attacker_action(
         success=success,
         probability=probability,
         roll=roll,
-        reason="attack succeeded" if success else "attack failed",
+        reason="",
     )
 
 
@@ -193,8 +193,8 @@ def apply_defender_action(
         return ActionResult(
             actor=Actor.DEFENDER,
             action=action,
-            success=False,
-            reason=action.reason,
+            success=True,
+            reason="",
         )
     if isinstance(action, RestoreNode):
         return _restore_node(state.graph, action)

@@ -19,7 +19,7 @@ python examples/scenario_random_standard.py
 python examples/scenario_strong_attacker.py
 ```
 
-`scenario_random_standard.py` runs random attacker and defender policies on a standard graph.
+`scenario_random_standard.py` runs a static graph where the attacker randomly attacks known legal nodes and the defender randomly reimages known captured nodes or does nothing.
 
 `scenario_strong_attacker.py` uses a high attack success probability and an attacker that always attacks a known legal target.
 

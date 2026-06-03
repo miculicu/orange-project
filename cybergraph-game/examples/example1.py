@@ -1,4 +1,4 @@
-"""Scenario: strong attacker with a high capture probability."""
+"""Scenario: static graph with random attacker and random reimaging defender."""
 
 from pathlib import Path
 import random
@@ -6,51 +6,35 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from cybergame.attacker import always_attack_policy
-from cybergame.defender import random_defender_policy_factory
+from cybergame.attacker import random_attacker_policy
+from cybergame.defender import random_reimage_policy_factory
 from cybergame.game import advance_game, initialize_game_state
 from cybergame.graph_init import random_graph_init
-from cybergame.model import (
-    AddNode,
-    AdjustSecurityLevel,
-    AttackNode,
-    NoAction,
-    RestoreNode,
-    RuleConfig,
-)
+from cybergame.model import AttackNode, NoAction, RestoreNode, RuleConfig
 from cybergame.visualization import GraphLiveView
 
-SCENARIO_NAME = "Strong attacker"
+SCENARIO_NAME = "Fully connected static 4-node graph with random attacker and random reimaging defender"
 
-NUM_NODES = 2
-NUM_EDGES = 1
-NUM_ENTRY_POINTS = 1
-GRAPH_SEED = 5
+NUM_NODES = 4
+NUM_EDGES = 6
+NUM_ENTRY_POINTS = 4
+GRAPH_SEED = 1
 
-RANDOM_SEED = 19
-NUM_TIME_STEPS = 25
+RANDOM_SEED = 7
+NUM_TIME_STEPS = 10
 
-ATTACK_SUCCESS_PROBABILITY = 0.95
-ATTACK_SEEN_PROBABILITY = 0.35
+ATTACK_SUCCESS_PROBABILITY = 0.5
+ATTACK_SEEN_PROBABILITY = 0.5
 
 SECURITY_LEVEL_MIN = 1
-SECURITY_LEVEL_MAX = 3
-ADDED_NODE_SECURITY_LEVEL = 3
+SECURITY_LEVEL_MAX = 1
+ADDED_NODE_SECURITY_LEVEL = 1
 
-DEFENDER_ACTION_PROBABILITY = 0.25
-DEFENDER_ADD_NODE_PROBABILITY = 0.25
-DEFENDER_ADJUST_SECURITY_PROBABILITY = 0.35
-SECURITY_ADJUST_DELTA = 1
-ADDED_NODE_EDGE_COUNT = 2
+DEFENDER_REIMAGE_PROBABILITY = 0.5
 
-ATTACKER_POLICY = always_attack_policy
-DEFENDER_POLICY = random_defender_policy_factory(
-    action_probability=DEFENDER_ACTION_PROBABILITY,
-    add_node_probability=DEFENDER_ADD_NODE_PROBABILITY,
-    adjust_security_probability=DEFENDER_ADJUST_SECURITY_PROBABILITY,
-    added_node_edge_count=ADDED_NODE_EDGE_COUNT,
-    added_node_security_level=ADDED_NODE_SECURITY_LEVEL,
-    security_adjust_delta=SECURITY_ADJUST_DELTA,
+ATTACKER_POLICY = random_attacker_policy
+DEFENDER_POLICY = random_reimage_policy_factory(
+    action_probability=DEFENDER_REIMAGE_PROBABILITY,
 )
 
 
@@ -100,18 +84,19 @@ def main() -> None:
 def _initial_status(state) -> str:
     return (
         f"{SCENARIO_NAME}\n"
-        f"Attacker known nodes: {len(state.attacker_knowledge.known_nodes)}\n"
-        f"Defender known captured: {len(state.defender_knowledge.known_captured_nodes)}\n"
+        f"Attacker known nodes: {_format_node_list(state.attacker_knowledge.known_nodes)}\n"
+        f"Defender known captures: {_format_node_list(state.defender_knowledge.known_captured_nodes)}\n"
         "Enter: next step | q: quit"
     )
 
 
 def _format_time_step_status(result, state) -> str:
     return (
+        f"Step {result.time_step}\n"
         f"{_format_action_result('Attacker', result.attacker_result)}\n"
         f"{_format_action_result('Defender', result.defender_result)}\n"
-        f"Attacker known nodes: {len(state.attacker_knowledge.known_nodes)}\n"
-        f"Defender known captured: {len(state.defender_knowledge.known_captured_nodes)}"
+        f"Attacker known nodes: {_format_node_list(state.attacker_knowledge.known_nodes)}\n"
+        f"Defender known captures: {_format_node_list(state.defender_knowledge.known_captured_nodes)}"
     )
 
 
@@ -124,7 +109,7 @@ def _format_action_result(label: str, result) -> str:
         detail += f", roll={result.roll:.3f}"
     if label == "Attacker":
         detail += f", seen={result.seen_by_defender}"
-    return f"{detail}, {result.reason}"
+    return detail
 
 
 def _format_action(action) -> str:
@@ -133,12 +118,16 @@ def _format_action(action) -> str:
     if isinstance(action, AttackNode):
         return f"attack {action.target}"
     if isinstance(action, RestoreNode):
-        return f"restore {action.target}"
-    if isinstance(action, AddNode):
-        return f"add node linked to {action.neighbors}"
-    if isinstance(action, AdjustSecurityLevel):
-        return f"adjust security of {action.target} by {action.delta}"
+        return f"reimage {action.target}"
     return str(action)
+
+
+def _format_node_list(nodes, limit: int = 10) -> str:
+    sorted_nodes = sorted(nodes, key=str)
+    displayed_nodes = [str(node) for node in sorted_nodes[:limit]]
+    if len(sorted_nodes) > limit:
+        displayed_nodes.append("...")
+    return ",".join(displayed_nodes)
 
 
 if __name__ == "__main__":
