@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 import tomllib
@@ -48,11 +49,25 @@ class IterativeSpec:
 
 
 @dataclass(frozen=True)
+class EvaluationSpec:
+    episodes: int
+    steps: int
+    seed: int
+    frame_every: int
+    max_frames: int | None
+    video: bool
+    video_every: int
+    max_video_frames: int | None
+    video_fps: int
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     path: Path
     env: EnvSpec
     training: TrainingSpec
     iterative: IterativeSpec
+    evaluation: EvaluationSpec
 
     @property
     def output_dir(self) -> Path:
@@ -106,19 +121,29 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     env_data = data.get("env")
     training_data = data.get("training")
     iterative_data = data.get("iterative", {})
+    evaluation_data = data.get("evaluation", {})
     if not isinstance(env_data, dict):
         raise ValueError("Config must contain an [env] block.")
     if not isinstance(training_data, dict):
         raise ValueError("Config must contain a [training] block.")
     if not isinstance(iterative_data, dict):
         raise ValueError("Config [iterative] block must be a table when present.")
+    if not isinstance(evaluation_data, dict):
+        raise ValueError("Config [evaluation] block must be a table when present.")
 
     env = _load_env_spec(env_data)
     training = _load_training_spec(training_data)
     iterative = _load_iterative_spec(iterative_data, training)
+    evaluation = _load_evaluation_spec(evaluation_data, training)
     if training.algorithm != "ppo":
         raise ValueError(f"Unsupported training.algorithm: {training.algorithm!r}")
-    return ExperimentConfig(path=config_path, env=env, training=training, iterative=iterative)
+    return ExperimentConfig(
+        path=config_path,
+        env=env,
+        training=training,
+        iterative=iterative,
+        evaluation=evaluation,
+    )
 
 
 def build_environment(
@@ -144,7 +169,7 @@ def build_basic_cyber_graph_defense_config(
     graph = build_graph(params)
     return graph, BasicCyberGraphDefenseConfig(
         graph=graph,
-        beta=_required(params, "beta"),
+        beta=_load_beta(params),
         probe_miss_probability=float(_required(params, "probe_miss_probability")),
         attacker_cost=float(params.get("attacker_cost", 0.05)),
         defender_cost=float(_required(params, "defender_cost")),
@@ -155,6 +180,10 @@ def build_basic_cyber_graph_defense_config(
         allow_full_defense=bool(params.get("allow_full_defense", False)),
         initial_compromised_probability=float(
             params.get("initial_compromised_probability", 0.0)
+        ),
+        belief_type=str(params.get("belief_type", "exact")),
+        factored_attack_probability=_optional_float(
+            params.get("factored_attack_probability")
         ),
     )
 
@@ -216,6 +245,44 @@ def _load_iterative_spec(
     )
 
 
+def _load_evaluation_spec(
+    evaluation_data: dict[str, Any],
+    training: TrainingSpec,
+) -> EvaluationSpec:
+    return EvaluationSpec(
+        episodes=int(evaluation_data.get("episodes", 3)),
+        steps=int(evaluation_data.get("steps", 100)),
+        seed=int(evaluation_data.get("seed", training.seed if training.seed is not None else 7)),
+        frame_every=int(evaluation_data.get("frame_every", 1)),
+        max_frames=_optional_int(evaluation_data.get("max_frames")),
+        video=bool(evaluation_data.get("video", False)),
+        video_every=int(evaluation_data.get("video_every", 1)),
+        max_video_frames=_optional_int(evaluation_data.get("max_video_frames")),
+        video_fps=int(evaluation_data.get("video_fps", 8)),
+    )
+
+
+def _load_beta(params: dict[str, Any]) -> Any:
+    has_beta = "beta" in params
+    has_alpha = "alpha" in params
+    if has_beta and has_alpha:
+        raise ValueError("Specify only one of env.beta or env.alpha, not both.")
+    if has_beta:
+        return params["beta"]
+    if has_alpha:
+        return _alpha_to_beta(params["alpha"])
+    raise ValueError("Missing required config key: beta or alpha")
+
+
+def _alpha_to_beta(alpha: Any) -> Any:
+    if isinstance(alpha, list):
+        return [_alpha_to_beta(value) for value in alpha]
+    alpha_value = float(alpha)
+    if alpha_value < 0.0:
+        raise ValueError("alpha entries must be nonnegative when beta = 1 - exp(-alpha).")
+    return 1.0 - math.exp(-alpha_value)
+
+
 def _require_env(config: ExperimentConfig, env_id: str) -> None:
     if config.env.env_id != env_id:
         raise ValueError(
@@ -233,3 +300,9 @@ def _optional_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)

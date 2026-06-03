@@ -1,0 +1,48 @@
+[env]
+name = "factored_cycle_20_alpha"
+env_id = "basic_cyber_graph_defense"
+graph_type = "cycle"
+num_nodes = 25
+# beta is computed as 1 - exp(-alpha).
+# alpha ~= 0.28768 gives beta ~= 0.25.
+alpha = 0.05
+probe_miss_probability = 0.3
+attacker_cost = 0.05
+defender_cost = 0.2
+max_steps = 100
+max_attack_nodes = 3
+max_defend_nodes = 2
+allow_full_attack = false
+allow_full_defense = true
+initial_compromised_probability = 0.0
+belief_type = "factored"
+factored_attack_probability = 0.1
+
+[training]
+algorithm = "ppo"
+total_timesteps = 200000
+seed = 71
+device = "cpu"
+verbose = 1
+model_name = "ppo_defender"
+output_root = "outputs"
+learning_rate = 0.0001
+n_steps = 2048
+batch_size = 256
+gamma = 0.99
+
+[iterative]
+iterations = 8
+defender_timesteps = 200000
+attacker_timesteps = 200000
+
+[evaluation]
+episodes = 5
+steps = 1000
+seed = 71
+frame_every = 100
+max_frames = 30
+video = true
+video_every = 20
+max_video_frames = 1000
+video_fps = 8

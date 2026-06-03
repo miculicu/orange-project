@@ -1,14 +1,14 @@
 [env]
-name = "path_graph_7_iterative"
+name = "defender_favored_4"
 env_id = "basic_cyber_graph_defense"
 graph_type = "path"
 num_nodes = 4
-beta = 0.1
+beta = 0.3
 probe_miss_probability = 0.1
-attacker_cost = 0.05
-defender_cost = 0.1
+attacker_cost = 0.15
+defender_cost = 0.08
 max_steps = 50
-max_attack_nodes = 2
+max_attack_nodes = 1
 max_defend_nodes = 2
 allow_full_attack = false
 allow_full_defense = true
@@ -16,29 +16,29 @@ initial_compromised_probability = 0.0
 
 [training]
 algorithm = "ppo"
-total_timesteps = 10000
-seed = 7
+total_timesteps = 100000
+seed = 21
 device = "cpu"
 verbose = 1
 model_name = "ppo_defender"
 output_root = "outputs"
-learning_rate = 0.0003
+learning_rate = 0.0001
 n_steps = 2048
-batch_size = 64
+batch_size = 256
 gamma = 0.99
 
 [iterative]
-iterations = 5
-defender_timesteps = 20000
-attacker_timesteps = 20000
+iterations = 8
+defender_timesteps = 100000
+attacker_timesteps = 100000
 
 [evaluation]
-episodes = 3
-steps = 200
-seed = 7
-frame_every = 50
-max_frames = 20
+episodes = 5
+steps = 500
+seed = 21
+frame_every = 100
+max_frames = 30
 video = true
-video_every = 1
+video_every = 5
 max_video_frames = 1000
 video_fps = 8

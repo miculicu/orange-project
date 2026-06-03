@@ -3,3 +3,5 @@ networkx
 numpy
 matplotlib
 stable_baselines3[extra]
+imageio
+imageio-ffmpeg
