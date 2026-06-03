@@ -1,0 +1,44 @@
+[env]
+name = "attacker_favored_4"
+env_id = "basic_cyber_graph_defense"
+graph_type = "path"
+num_nodes = 4
+beta = 0.4
+probe_miss_probability = 0.2
+attacker_cost = 0.1
+defender_cost = 0.15
+max_steps = 50
+max_attack_nodes = 2
+max_defend_nodes = 1
+allow_full_attack = false
+allow_full_defense = false
+initial_compromised_probability = 0.0
+
+[training]
+algorithm = "ppo"
+total_timesteps = 100000
+seed = 31
+device = "cpu"
+verbose = 1
+model_name = "ppo_defender"
+output_root = "outputs"
+learning_rate = 0.0001
+n_steps = 2048
+batch_size = 256
+gamma = 0.99
+
+[iterative]
+iterations = 8
+defender_timesteps = 100000
+attacker_timesteps = 100000
+
+[evaluation]
+episodes = 5
+steps = 500
+seed = 31
+frame_every = 100
+max_frames = 30
+video = true
+video_every = 5
+max_video_frames = 1000
+video_fps = 8
