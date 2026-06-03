@@ -48,11 +48,25 @@ class IterativeSpec:
 
 
 @dataclass(frozen=True)
+class EvaluationSpec:
+    episodes: int
+    steps: int
+    seed: int
+    frame_every: int
+    max_frames: int | None
+    video: bool
+    video_every: int
+    max_video_frames: int | None
+    video_fps: int
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     path: Path
     env: EnvSpec
     training: TrainingSpec
     iterative: IterativeSpec
+    evaluation: EvaluationSpec
 
     @property
     def output_dir(self) -> Path:
@@ -106,19 +120,29 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     env_data = data.get("env")
     training_data = data.get("training")
     iterative_data = data.get("iterative", {})
+    evaluation_data = data.get("evaluation", {})
     if not isinstance(env_data, dict):
         raise ValueError("Config must contain an [env] block.")
     if not isinstance(training_data, dict):
         raise ValueError("Config must contain a [training] block.")
     if not isinstance(iterative_data, dict):
         raise ValueError("Config [iterative] block must be a table when present.")
+    if not isinstance(evaluation_data, dict):
+        raise ValueError("Config [evaluation] block must be a table when present.")
 
     env = _load_env_spec(env_data)
     training = _load_training_spec(training_data)
     iterative = _load_iterative_spec(iterative_data, training)
+    evaluation = _load_evaluation_spec(evaluation_data, training)
     if training.algorithm != "ppo":
         raise ValueError(f"Unsupported training.algorithm: {training.algorithm!r}")
-    return ExperimentConfig(path=config_path, env=env, training=training, iterative=iterative)
+    return ExperimentConfig(
+        path=config_path,
+        env=env,
+        training=training,
+        iterative=iterative,
+        evaluation=evaluation,
+    )
 
 
 def build_environment(
@@ -213,6 +237,23 @@ def _load_iterative_spec(
         iterations=int(iterative_data.get("iterations", 3)),
         defender_timesteps=int(iterative_data.get("defender_timesteps", training.total_timesteps)),
         attacker_timesteps=int(iterative_data.get("attacker_timesteps", training.total_timesteps)),
+    )
+
+
+def _load_evaluation_spec(
+    evaluation_data: dict[str, Any],
+    training: TrainingSpec,
+) -> EvaluationSpec:
+    return EvaluationSpec(
+        episodes=int(evaluation_data.get("episodes", 3)),
+        steps=int(evaluation_data.get("steps", 100)),
+        seed=int(evaluation_data.get("seed", training.seed if training.seed is not None else 7)),
+        frame_every=int(evaluation_data.get("frame_every", 1)),
+        max_frames=_optional_int(evaluation_data.get("max_frames")),
+        video=bool(evaluation_data.get("video", False)),
+        video_every=int(evaluation_data.get("video_every", 1)),
+        max_video_frames=_optional_int(evaluation_data.get("max_video_frames")),
+        video_fps=int(evaluation_data.get("video_fps", 8)),
     )
 
 

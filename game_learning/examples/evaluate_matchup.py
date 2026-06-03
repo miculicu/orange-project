@@ -34,17 +34,36 @@ def main() -> None:
     parser.add_argument("--iteration", type=int, help="Use attacker/defender from this iterative-training iteration.")
     parser.add_argument("--defender", type=Path, help="Path to defender .zip model.")
     parser.add_argument("--attacker", type=Path, help="Path to attacker .zip model.")
-    parser.add_argument("--episodes", type=int, default=3)
-    parser.add_argument("--steps", type=int, default=100)
-    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--episodes", type=int, default=None, help="Number of episodes; defaults to [evaluation].episodes.")
+    parser.add_argument("--steps", type=int, default=None, help="Steps per episode; defaults to [evaluation].steps.")
+    parser.add_argument("--seed", type=int, default=None, help="Evaluation seed; defaults to [evaluation].seed.")
     parser.add_argument("--name", type=str, default=None, help="Evaluation folder name.")
-    parser.add_argument("--frame-every", type=int, default=1, help="Consider graph-frame saving every N environment steps.")
-    parser.add_argument("--max-frames", type=int, default=None, help="Save the first N graph frames densely, then fall back to --frame-every.")
+    parser.add_argument("--frame-every", type=int, default=None, help="After the dense prefix, save graph PNGs every N environment steps.")
+    parser.add_argument("--max-frames", type=int, default=None, help="Save the first N graph PNGs of each episode densely, then fall back to --frame-every.")
     parser.add_argument("--no-frames", action="store_true", help="Skip graph frame PNG generation.")
+    parser.add_argument("--video", dest="video", action="store_true", default=None, help="Write an MP4 rollout video.")
+    parser.add_argument("--no-video", dest="video", action="store_false", help="Disable MP4 rollout video.")
+    parser.add_argument("--video-every", type=int, default=None, help="Add one video frame every N environment steps.")
+    parser.add_argument("--max-video-frames", type=int, default=None, help="Maximum number of video frames across all episodes.")
+    parser.add_argument("--video-fps", type=int, default=None, help="Frames per second for the MP4 video.")
     args = parser.parse_args()
 
     experiment = load_experiment_config(args.config)
-    graph, game_config = build_basic_cyber_graph_defense_config(experiment, max_steps=args.steps)
+    episodes = args.episodes if args.episodes is not None else experiment.evaluation.episodes
+    steps = args.steps if args.steps is not None else experiment.evaluation.steps
+    seed = args.seed if args.seed is not None else experiment.evaluation.seed
+    frame_every = args.frame_every if args.frame_every is not None else experiment.evaluation.frame_every
+    max_frames = args.max_frames if args.max_frames is not None else experiment.evaluation.max_frames
+    video = args.video if args.video is not None else experiment.evaluation.video
+    video_every = args.video_every if args.video_every is not None else experiment.evaluation.video_every
+    max_video_frames = (
+        args.max_video_frames
+        if args.max_video_frames is not None
+        else experiment.evaluation.max_video_frames
+    )
+    video_fps = args.video_fps if args.video_fps is not None else experiment.evaluation.video_fps
+
+    graph, game_config = build_basic_cyber_graph_defense_config(experiment, max_steps=steps)
     defender_path, attacker_path = _resolve_model_paths(experiment, args)
     output_dir = _evaluation_dir(experiment, args.name, defender_path, attacker_path)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -76,15 +95,17 @@ def main() -> None:
 
     rows = []
     frame_dir = output_dir / "graph_frames"
+    video_frame_dir = output_dir / "video_frames"
+    video_frame_paths: list[Path] = []
     pos = None
-    frames_saved = 0
-    for episode in range(args.episodes):
+    for episode in range(episodes):
+        frames_saved = 0
         env = BasicCyberGraphAttackEnv(
             game_config,
             defender_policy=defender_policy,
             belief_attacker_policy=attacker_policy,
         )
-        observation, info = env.reset(seed=args.seed + episode)
+        observation, info = env.reset(seed=seed + episode)
         if not args.no_frames:
             pos, frames_saved = _maybe_save_frame(
                 graph,
@@ -94,9 +115,22 @@ def main() -> None:
                 episode,
                 step=0,
                 title=f"episode {episode} step 0",
-                frame_every=args.frame_every,
-                max_frames=args.max_frames,
+                frame_every=frame_every,
+                max_frames=max_frames,
                 frames_saved=frames_saved,
+            )
+        if video:
+            pos = _maybe_save_video_frame(
+                graph,
+                info,
+                video_frame_dir,
+                video_frame_paths,
+                pos,
+                episode,
+                step=0,
+                title=f"episode {episode} step 0",
+                video_every=video_every,
+                max_video_frames=max_video_frames,
             )
 
         done = False
@@ -104,7 +138,7 @@ def main() -> None:
             attack = attacker_policy.sample(
                 state=observation,
                 defense=np.zeros(num_nodes, dtype=np.int8),
-                rng=np.random.default_rng(args.seed + episode),
+                rng=np.random.default_rng(seed + episode),
             )
             observation, attacker_reward, terminated, truncated, info = env.step(attacker_policy.action_codec.encode(attack))
             row = _row_from_info(
@@ -127,14 +161,48 @@ def main() -> None:
                         f"episode {episode} step {info['step']} "
                         f"A={attacker_reward:.2f} D={info['defender_reward']:.2f}"
                     ),
-                    frame_every=args.frame_every,
-                    max_frames=args.max_frames,
+                    frame_every=frame_every,
+                    max_frames=max_frames,
                     frames_saved=frames_saved,
+                )
+            if video:
+                pos = _maybe_save_video_frame(
+                    graph,
+                    info,
+                    video_frame_dir,
+                    video_frame_paths,
+                    pos,
+                    episode,
+                    step=int(info["step"]),
+                    title=(
+                        f"episode {episode} step {info['step']} "
+                        f"A={attacker_reward:.2f} D={info['defender_reward']:.2f}"
+                    ),
+                    video_every=video_every,
+                    max_video_frames=max_video_frames,
                 )
             done = terminated or truncated
 
     _write_csv(output_dir / "rollout.csv", rows)
-    summary = _summary(rows, defender_path, attacker_path, args)
+    video_path = None
+    if video:
+        video_path = output_dir / "rollout.mp4"
+        _write_video(video_path, video_frame_paths, video_fps)
+        _cleanup_video_frames(video_frame_dir, video_frame_paths)
+    summary = _summary(
+        rows,
+        defender_path,
+        attacker_path,
+        episodes=episodes,
+        steps=steps,
+        seed=seed,
+        frame_every=frame_every,
+        max_frames=max_frames,
+        video_path=video_path,
+        video_every=video_every,
+        max_video_frames=max_video_frames,
+        video_fps=video_fps,
+    )
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     _plot_all(output_dir / "plots", rows, num_nodes)
     print(f"Wrote evaluation to {output_dir}")
@@ -251,14 +319,35 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def _summary(rows: list[dict], defender_path: Path, attacker_path: Path, args) -> dict:
+def _summary(
+    rows: list[dict],
+    defender_path: Path,
+    attacker_path: Path,
+    *,
+    episodes: int,
+    steps: int,
+    seed: int,
+    frame_every: int,
+    max_frames: int | None,
+    video_path: Path | None,
+    video_every: int,
+    max_video_frames: int | None,
+    video_fps: int,
+) -> dict:
     if not rows:
         return {}
     return {
         "defender_model": str(defender_path),
         "attacker_model": str(attacker_path),
-        "episodes": args.episodes,
-        "steps": args.steps,
+        "episodes": episodes,
+        "steps": steps,
+        "seed": seed,
+        "frame_every": frame_every,
+        "max_frames_per_episode": max_frames,
+        "video_path": str(video_path) if video_path is not None else None,
+        "video_every": video_every,
+        "max_video_frames": max_video_frames,
+        "video_fps": video_fps,
         "mean_attacker_reward": float(np.mean([r["attacker_reward"] for r in rows])),
         "mean_defender_reward": float(np.mean([r["defender_reward"] for r in rows])),
         "mean_num_compromised": float(np.mean([r["num_compromised"] for r in rows])),
@@ -366,6 +455,68 @@ def _maybe_save_frame(
     save_path = frame_dir / f"episode_{episode:03d}_step_{step:04d}.png"
     pos = draw_game_state(graph, info, pos=pos, title=title, save_path=str(save_path), show=False)
     return pos, frames_saved + 1
+
+
+
+def _maybe_save_video_frame(
+    graph,
+    info: dict,
+    frame_dir: Path,
+    frame_paths: list[Path],
+    pos: dict | None,
+    episode: int,
+    step: int,
+    title: str,
+    video_every: int,
+    max_video_frames: int | None,
+) -> dict | None:
+    if max_video_frames is not None and len(frame_paths) >= max_video_frames:
+        return pos
+    if video_every <= 0 or step % video_every != 0:
+        return pos
+    save_path = frame_dir / f"frame_{len(frame_paths):06d}_episode_{episode:03d}_step_{step:04d}.png"
+    pos = draw_game_state(graph, info, pos=pos, title=title, save_path=str(save_path), show=False)
+    frame_paths.append(save_path)
+    return pos
+
+
+def _write_video(path: Path, frame_paths: list[Path], fps: int) -> None:
+    if not frame_paths:
+        return
+    try:
+        import imageio.v2 as imageio
+        from PIL import Image, ImageOps
+    except ImportError as exc:
+        raise SystemExit(
+            "Video export needs imageio and pillow. Install dependencies with `pip install -r requirements.txt`."
+        ) from exc
+    path.parent.mkdir(parents=True, exist_ok=True)
+    target_size = None
+    with imageio.get_writer(path, fps=fps) as writer:
+        for frame_path in frame_paths:
+            image = Image.open(frame_path).convert("RGB")
+            if target_size is None:
+                target_size = _macroblock_size(image.size)
+            if image.size != target_size:
+                image = ImageOps.pad(image, target_size, color="white")
+            writer.append_data(np.asarray(image))
+
+
+def _cleanup_video_frames(frame_dir: Path, frame_paths: list[Path]) -> None:
+    for frame_path in frame_paths:
+        frame_path.unlink(missing_ok=True)
+    try:
+        frame_dir.rmdir()
+    except OSError:
+        pass
+
+
+def _macroblock_size(size: tuple[int, int], block_size: int = 16) -> tuple[int, int]:
+    width, height = size
+    return (
+        ((width + block_size - 1) // block_size) * block_size,
+        ((height + block_size - 1) // block_size) * block_size,
+    )
 
 
 def _belief_marginals(belief: np.ndarray, num_nodes: int) -> np.ndarray:
