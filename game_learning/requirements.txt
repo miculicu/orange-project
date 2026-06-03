@@ -2,4 +2,4 @@ gymnasium
 networkx
 numpy
 matplotlib
-
+stable_baselines3[extra]
