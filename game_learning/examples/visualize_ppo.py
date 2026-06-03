@@ -5,8 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from game_learning import CyberGraphDefenseEnv
-from game_learning.experiment_config import build_game_config, load_experiment_config
+from game_learning.experiment_config import build_environment, load_experiment_config
 from game_learning.visualization import LearningGraphLiveView, draw_game_state
 
 
@@ -49,11 +48,13 @@ def main() -> None:
             f".venv/bin/python examples/train_ppo.py --config {args.config}"
         )
 
-    graph, game_config = build_game_config(experiment, max_steps=args.steps)
-    env = CyberGraphDefenseEnv(game_config)
-    model = PPO.load(experiment.model_zip_path, env=env, device=experiment.training.device)
+    built = build_environment(experiment, max_steps=args.steps)
+    if built.graph is None:
+        raise SystemExit(f"Environment {experiment.env.env_id!r} does not provide graph visualization.")
+    graph = built.graph
+    model = PPO.load(experiment.model_zip_path, env=built.env, device=experiment.training.device)
 
-    observation, info = env.reset(seed=args.seed)
+    observation, info = built.env.reset(seed=args.seed)
     experiment.ppo_frame_dir.mkdir(parents=True, exist_ok=True)
     pos = draw_game_state(
         graph,
@@ -68,7 +69,7 @@ def main() -> None:
     done = False
     while not done:
         action, _ = model.predict(observation, deterministic=True)
-        observation, reward, terminated, truncated, info = env.step(action)
+        observation, reward, terminated, truncated, info = built.env.step(action)
         view.update(info, reward=reward)
         draw_game_state(
             graph,

@@ -1,4 +1,4 @@
-"""Load experiment configs and construct environments/output paths."""
+"""Load experiment configs and construct configured environments/output paths."""
 
 from __future__ import annotations
 
@@ -7,24 +7,22 @@ from pathlib import Path
 from typing import Any
 import tomllib
 
+import gymnasium as gym
 import networkx as nx
 
-from .env import GameConfig
+from .env import BasicCyberGraphDefenseConfig, BasicCyberGraphDefenseEnv
+
+
+BASIC_CYBER_GRAPH_DEFENSE_ENV_ID = "basic_cyber_graph_defense"
 
 
 @dataclass(frozen=True)
 class EnvSpec:
+    """Raw environment block from a TOML config."""
+
     name: str
-    graph_type: str
-    num_nodes: int
-    beta: float | list[float]
-    probe_miss_probability: float
-    attacker_cost: float
-    defender_cost: float
-    max_steps: int
-    max_attack_nodes: int
-    max_defend_nodes: int | None
-    initial_compromised_probability: float
+    env_id: str
+    params: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -43,10 +41,18 @@ class TrainingSpec:
 
 
 @dataclass(frozen=True)
+class IterativeSpec:
+    iterations: int
+    defender_timesteps: int
+    attacker_timesteps: int
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     path: Path
     env: EnvSpec
     training: TrainingSpec
+    iterative: IterativeSpec
 
     @property
     def output_dir(self) -> Path:
@@ -64,6 +70,33 @@ class ExperimentConfig:
     def ppo_frame_dir(self) -> Path:
         return self.output_dir / "ppo_rollout_frames"
 
+    @property
+    def iterative_dir(self) -> Path:
+        return self.output_dir / "iterative"
+
+    def iteration_dir(self, iteration: int) -> Path:
+        return self.iterative_dir / f"iteration_{iteration:03d}"
+
+    def defender_model_path(self, iteration: int) -> Path:
+        return self.iteration_dir(iteration) / "defender"
+
+    def defender_model_zip_path(self, iteration: int) -> Path:
+        return self.iteration_dir(iteration) / "defender.zip"
+
+    def attacker_model_path(self, iteration: int) -> Path:
+        return self.iteration_dir(iteration) / "attacker"
+
+    def attacker_model_zip_path(self, iteration: int) -> Path:
+        return self.iteration_dir(iteration) / "attacker.zip"
+
+
+@dataclass(frozen=True)
+class BuiltEnvironment:
+    """Constructed environment plus optional graph for graph visualizations."""
+
+    env: gym.Env
+    graph: nx.Graph | None = None
+
 
 def load_experiment_config(path: str | Path) -> ExperimentConfig:
     config_path = Path(path)
@@ -72,27 +105,90 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
 
     env_data = data.get("env")
     training_data = data.get("training")
+    iterative_data = data.get("iterative", {})
     if not isinstance(env_data, dict):
         raise ValueError("Config must contain an [env] block.")
     if not isinstance(training_data, dict):
         raise ValueError("Config must contain a [training] block.")
+    if not isinstance(iterative_data, dict):
+        raise ValueError("Config [iterative] block must be a table when present.")
 
-    env = EnvSpec(
-        name=str(_required(env_data, "name")),
-        graph_type=str(_required(env_data, "graph_type")),
-        num_nodes=int(_required(env_data, "num_nodes")),
-        beta=_required(env_data, "beta"),
-        probe_miss_probability=float(_required(env_data, "probe_miss_probability")),
-        attacker_cost=float(env_data.get("attacker_cost", 0.05)),
-        defender_cost=float(_required(env_data, "defender_cost")),
-        max_steps=int(_required(env_data, "max_steps")),
-        max_attack_nodes=int(_required(env_data, "max_attack_nodes")),
-        max_defend_nodes=_optional_int(env_data.get("max_defend_nodes")),
+    env = _load_env_spec(env_data)
+    training = _load_training_spec(training_data)
+    iterative = _load_iterative_spec(iterative_data, training)
+    if training.algorithm != "ppo":
+        raise ValueError(f"Unsupported training.algorithm: {training.algorithm!r}")
+    return ExperimentConfig(path=config_path, env=env, training=training, iterative=iterative)
+
+
+def build_environment(
+    config: ExperimentConfig,
+    *,
+    max_steps: int | None = None,
+) -> BuiltEnvironment:
+    """Build the Gym environment selected by config.env.env_id."""
+    if config.env.env_id == BASIC_CYBER_GRAPH_DEFENSE_ENV_ID:
+        graph, game_config = build_basic_cyber_graph_defense_config(config, max_steps=max_steps)
+        return BuiltEnvironment(env=BasicCyberGraphDefenseEnv(game_config), graph=graph)
+    raise ValueError(f"Unsupported env.env_id: {config.env.env_id!r}")
+
+
+def build_basic_cyber_graph_defense_config(
+    config: ExperimentConfig,
+    *,
+    max_steps: int | None = None,
+) -> tuple[nx.Graph, BasicCyberGraphDefenseConfig]:
+    """Build the current binary graph defender environment config."""
+    _require_env(config, BASIC_CYBER_GRAPH_DEFENSE_ENV_ID)
+    params = config.env.params
+    graph = build_graph(params)
+    return graph, BasicCyberGraphDefenseConfig(
+        graph=graph,
+        beta=_required(params, "beta"),
+        probe_miss_probability=float(_required(params, "probe_miss_probability")),
+        attacker_cost=float(params.get("attacker_cost", 0.05)),
+        defender_cost=float(_required(params, "defender_cost")),
+        max_steps=int(_required(params, "max_steps")) if max_steps is None else max_steps,
+        max_attack_nodes=int(_required(params, "max_attack_nodes")),
+        max_defend_nodes=_optional_int(params.get("max_defend_nodes")),
         initial_compromised_probability=float(
-            env_data.get("initial_compromised_probability", 0.0)
+            params.get("initial_compromised_probability", 0.0)
         ),
     )
-    training = TrainingSpec(
+
+
+def build_game_config(
+    config: ExperimentConfig,
+    *,
+    max_steps: int | None = None,
+) -> tuple[nx.Graph, BasicCyberGraphDefenseConfig]:
+    """Backward-compatible alias for the current graph-defense env builder."""
+    return build_basic_cyber_graph_defense_config(config, max_steps=max_steps)
+
+
+def build_graph(params: dict[str, Any]) -> nx.Graph:
+    graph_type = str(_required(params, "graph_type"))
+    num_nodes = int(_required(params, "num_nodes"))
+    if graph_type == "path":
+        return nx.path_graph(num_nodes)
+    if graph_type == "cycle":
+        return nx.cycle_graph(num_nodes)
+    if graph_type == "complete":
+        return nx.complete_graph(num_nodes)
+    raise ValueError(f"Unsupported env.graph_type: {graph_type!r}")
+
+
+def _load_env_spec(env_data: dict[str, Any]) -> EnvSpec:
+    name = str(_required(env_data, "name"))
+    env_id = str(env_data.get("env_id", BASIC_CYBER_GRAPH_DEFENSE_ENV_ID))
+    params = dict(env_data)
+    params.pop("name", None)
+    params.pop("env_id", None)
+    return EnvSpec(name=name, env_id=env_id, params=params)
+
+
+def _load_training_spec(training_data: dict[str, Any]) -> TrainingSpec:
+    return TrainingSpec(
         algorithm=str(training_data.get("algorithm", "ppo")),
         total_timesteps=int(_required(training_data, "total_timesteps")),
         seed=_optional_int(training_data.get("seed")),
@@ -105,34 +201,24 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         batch_size=int(training_data.get("batch_size", 64)),
         gamma=float(training_data.get("gamma", 0.99)),
     )
-    if training.algorithm != "ppo":
-        raise ValueError(f"Unsupported training.algorithm: {training.algorithm!r}")
-    return ExperimentConfig(path=config_path, env=env, training=training)
 
 
-def build_graph(env: EnvSpec) -> nx.Graph:
-    if env.graph_type == "path":
-        return nx.path_graph(env.num_nodes)
-    if env.graph_type == "cycle":
-        return nx.cycle_graph(env.num_nodes)
-    if env.graph_type == "complete":
-        return nx.complete_graph(env.num_nodes)
-    raise ValueError(f"Unsupported env.graph_type: {env.graph_type!r}")
-
-
-def build_game_config(config: ExperimentConfig, *, max_steps: int | None = None) -> tuple[nx.Graph, GameConfig]:
-    graph = build_graph(config.env)
-    return graph, GameConfig(
-        graph=graph,
-        beta=config.env.beta,
-        probe_miss_probability=config.env.probe_miss_probability,
-        attacker_cost=config.env.attacker_cost,
-        defender_cost=config.env.defender_cost,
-        max_steps=config.env.max_steps if max_steps is None else max_steps,
-        max_attack_nodes=config.env.max_attack_nodes,
-        max_defend_nodes=config.env.max_defend_nodes,
-        initial_compromised_probability=config.env.initial_compromised_probability,
+def _load_iterative_spec(
+    iterative_data: dict[str, Any],
+    training: TrainingSpec,
+) -> IterativeSpec:
+    return IterativeSpec(
+        iterations=int(iterative_data.get("iterations", 3)),
+        defender_timesteps=int(iterative_data.get("defender_timesteps", training.total_timesteps)),
+        attacker_timesteps=int(iterative_data.get("attacker_timesteps", training.total_timesteps)),
     )
+
+
+def _require_env(config: ExperimentConfig, env_id: str) -> None:
+    if config.env.env_id != env_id:
+        raise ValueError(
+            f"Config env_id {config.env.env_id!r} cannot be built as {env_id!r}."
+        )
 
 
 def _required(data: dict[str, Any], key: str) -> Any:

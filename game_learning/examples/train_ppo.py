@@ -5,8 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from game_learning import CyberGraphDefenseEnv
-from game_learning.experiment_config import build_game_config, load_experiment_config
+from game_learning.experiment_config import build_environment, load_experiment_config
 from stable_baselines3 import PPO
 
 
@@ -24,13 +23,12 @@ def main() -> None:
     args = parser.parse_args()
 
     experiment = load_experiment_config(args.config)
-    _, game_config = build_game_config(experiment)
-    env = CyberGraphDefenseEnv(game_config)
+    built = build_environment(experiment)
     experiment.output_dir.mkdir(parents=True, exist_ok=True)
 
     model = PPO(
         "MlpPolicy",
-        env,
+        built.env,
         verbose=experiment.training.verbose,
         seed=experiment.training.seed,
         device=experiment.training.device,
