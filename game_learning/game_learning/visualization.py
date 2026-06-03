@@ -174,6 +174,8 @@ def _selected_nodes(node_list: list, mask: np.ndarray) -> list:
 
 
 def _marginal_compromise_probabilities(belief: np.ndarray, num_nodes: int) -> np.ndarray:
+    if belief.shape == (num_nodes,):
+        return belief.astype(np.float64)
     states = np.array(
         [list(map(int, f"{index:0{num_nodes}b}")) for index in range(2**num_nodes)],
         dtype=np.float64,

@@ -1,0 +1,48 @@
+[env]
+name = "factored_path_12"
+env_id = "basic_cyber_graph_defense"
+graph_type = "path"
+num_nodes = 12
+beta = 0.3
+probe_miss_probability = 0.15
+attacker_cost = 0.12
+defender_cost = 0.1
+max_steps = 80
+max_attack_nodes = 2
+max_defend_nodes = 2
+allow_full_attack = false
+allow_full_defense = true
+initial_compromised_probability = 0.0
+belief_type = "factored"
+# If omitted, the factored updater uses max_attack_nodes / num_nodes.
+# Here that would be 2 / 12 ~= 0.167.
+factored_attack_probability = 0.17
+
+[training]
+algorithm = "ppo"
+total_timesteps = 150000
+seed = 61
+device = "cpu"
+verbose = 1
+model_name = "ppo_defender"
+output_root = "outputs"
+learning_rate = 0.0001
+n_steps = 2048
+batch_size = 256
+gamma = 0.99
+
+[iterative]
+iterations = 8
+defender_timesteps = 150000
+attacker_timesteps = 150000
+
+[evaluation]
+episodes = 5
+steps = 800
+seed = 61
+frame_every = 100
+max_frames = 30
+video = true
+video_every = 10
+max_video_frames = 1000
+video_fps = 8

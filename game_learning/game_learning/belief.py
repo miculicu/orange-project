@@ -94,6 +94,63 @@ class BeliefUpdater:
         return posterior / normalizer
 
 
+@dataclass(frozen=True)
+class FactoredBeliefUpdater:
+    """Approximate defender belief over independent node compromise marginals.
+
+    This stores p[v] = P(s[v] = 1 | history) instead of a full distribution
+    over {0, 1}^n. The update assumes independent per-node attack hazards.
+    """
+
+    num_nodes: int
+    beta: np.ndarray
+    probe_miss_probability: float
+    attack_probability: float
+
+    def __post_init__(self) -> None:
+        beta = np.asarray(self.beta, dtype=np.float64)
+        if beta.shape != (self.num_nodes,):
+            raise ValueError("beta must have shape (num_nodes,).")
+        if np.any((beta < 0.0) | (beta > 1.0)):
+            raise ValueError("beta entries must be between 0 and 1.")
+        if not 0.0 <= self.probe_miss_probability <= 1.0:
+            raise ValueError("probe_miss_probability must be between 0 and 1.")
+        if not 0.0 <= self.attack_probability <= 1.0:
+            raise ValueError("attack_probability must be between 0 and 1.")
+
+    def update(
+        self,
+        belief: np.ndarray,
+        observation: np.ndarray,
+        defense: np.ndarray,
+    ) -> np.ndarray:
+        """Return approximate marginal compromise probabilities after Y and D."""
+        belief = _as_probability_vector(belief, self.num_nodes, "belief")
+        observation = _as_binary_vector(observation, self.num_nodes, "observation")
+        defense = _as_binary_vector(defense, self.num_nodes, "defense")
+
+        posterior = np.zeros(self.num_nodes, dtype=np.float64)
+        rho = self.attack_probability
+        nu = self.probe_miss_probability
+        missed_denominator = 1.0 - rho * (1.0 - nu)
+        missed_attack_probability = 0.0
+        if missed_denominator > 0.0:
+            missed_attack_probability = rho * nu / missed_denominator
+
+        for node in range(self.num_nodes):
+            if defense[node]:
+                posterior[node] = 0.0
+            elif observation[node]:
+                posterior[node] = belief[node] + (1.0 - belief[node]) * self.beta[node]
+            else:
+                posterior[node] = (
+                    belief[node]
+                    + (1.0 - belief[node]) * missed_attack_probability * self.beta[node]
+                )
+
+        return np.clip(posterior, 0.0, 1.0)
+
+
 def node_compromise_probabilities(
     state: np.ndarray,
     attack: np.ndarray,
@@ -162,3 +219,12 @@ def _as_binary_distribution(value: np.ndarray, size: int, name: str) -> np.ndarr
         raise ValueError(f"{name} must have positive mass.")
     return array / total
 
+
+
+def _as_probability_vector(value: np.ndarray, size: int, name: str) -> np.ndarray:
+    array = np.asarray(value, dtype=np.float64)
+    if array.shape != (size,):
+        raise ValueError(f"{name} must have shape ({size},).")
+    if np.any((array < 0.0) | (array > 1.0)):
+        raise ValueError(f"{name} entries must be between 0 and 1.")
+    return array

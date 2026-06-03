@@ -180,6 +180,10 @@ def build_basic_cyber_graph_defense_config(
         initial_compromised_probability=float(
             params.get("initial_compromised_probability", 0.0)
         ),
+        belief_type=str(params.get("belief_type", "exact")),
+        factored_attack_probability=_optional_float(
+            params.get("factored_attack_probability")
+        ),
     )
 
 
@@ -274,3 +278,9 @@ def _optional_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)

@@ -79,6 +79,7 @@ def main() -> None:
         game_config.max_attack_nodes,
         game_config.allow_full_defense,
         game_config.allow_full_attack,
+        game_config.belief_type,
     )
     defender_policy = SB3DefenderPolicy(
         model=defender_model,
@@ -216,8 +217,9 @@ def _validate_model_spaces(
     max_attack_nodes: int | None,
     allow_full_defense: bool,
     allow_full_attack: bool,
+    belief_type: str,
 ) -> None:
-    expected_defender_observation = (2**num_nodes,)
+    expected_defender_observation = (num_nodes,) if belief_type == "factored" else (2**num_nodes,)
     expected_attacker_observation = (num_nodes,)
     expected_defender_actions = BudgetedSubsetActionSpace(
         num_nodes,
@@ -233,7 +235,8 @@ def _validate_model_spaces(
         raise SystemExit(
             "Defender model observation space "
             f"{defender_model.observation_space} does not match config with "
-            f"{num_nodes} nodes: expected Box shape {expected_defender_observation}."
+            f"{num_nodes} nodes and belief_type={belief_type!r}: "
+            f"expected Box shape {expected_defender_observation}."
         )
     if getattr(defender_model.action_space, "n", None) != expected_defender_actions:
         raise SystemExit(
@@ -520,6 +523,8 @@ def _macroblock_size(size: tuple[int, int], block_size: int = 16) -> tuple[int, 
 
 
 def _belief_marginals(belief: np.ndarray, num_nodes: int) -> np.ndarray:
+    if belief.shape == (num_nodes,):
+        return belief.astype(np.float64)
     states = enumerate_binary_states(num_nodes).astype(np.float64)
     return belief @ states
 

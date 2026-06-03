@@ -11,7 +11,7 @@ import networkx as nx
 import numpy as np
 
 from .action_spaces import BudgetedSubsetActionSpace
-from .belief import BeliefUpdater, enumerate_binary_states, node_compromise_probabilities
+from .belief import BeliefUpdater, FactoredBeliefUpdater, enumerate_binary_states, node_compromise_probabilities
 from .policies import UniformAttackerPolicy
 
 
@@ -37,6 +37,8 @@ class BasicCyberGraphDefenseConfig:
     allow_full_attack: bool = False
     allow_full_defense: bool = False
     initial_compromised_probability: float = 0.0
+    belief_type: str = "exact"
+    factored_attack_probability: float | None = None
 
 
 class BasicCyberGraphDefenseEnv(gym.Env):
@@ -63,17 +65,17 @@ class BasicCyberGraphDefenseEnv(gym.Env):
             max_attack_nodes=config.max_attack_nodes,
             allow_full_attack=config.allow_full_attack,
         )
-        self.belief_updater = BeliefUpdater(
+        self.state_space = _state_space(config.belief_type, self.num_nodes)
+        self.belief_updater = _make_belief_updater(
+            config=config,
             num_nodes=self.num_nodes,
             beta=self.beta,
-            probe_miss_probability=config.probe_miss_probability,
             attacker_policy=self.attacker_policy,
         )
-        self.state_space = enumerate_binary_states(self.num_nodes)
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(len(self.state_space),),
+            shape=(_belief_size(config.belief_type, self.num_nodes),),
             dtype=np.float32,
         )
         self.defense_action_codec = BudgetedSubsetActionSpace(
@@ -86,7 +88,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._state = np.zeros(self.num_nodes, dtype=np.int8)
-        self._belief = np.zeros(len(self.state_space), dtype=np.float64)
+        self._belief = np.zeros(_belief_size(config.belief_type, self.num_nodes), dtype=np.float64)
         self._step_count = 0
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
@@ -106,7 +108,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
             self.config.initial_compromised_probability,
             self._rng,
         )
-        self._belief = _belief_from_known_state(self.state_space, self._state)
+        self._belief = _initial_belief(self.config.belief_type, self.state_space, self._state)
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
         return self._observation(), self._info(defense=np.zeros(self.num_nodes, dtype=np.int8))
@@ -201,13 +203,13 @@ class BasicCyberGraphAttackEnv(gym.Env):
         _validate_config(config, self.num_nodes)
 
         self.beta = _expand_beta(config.beta, self.num_nodes)
-        self.belief_updater = BeliefUpdater(
+        self.state_space = _state_space(config.belief_type, self.num_nodes)
+        self.belief_updater = _make_belief_updater(
+            config=config,
             num_nodes=self.num_nodes,
             beta=self.beta,
-            probe_miss_probability=config.probe_miss_probability,
             attacker_policy=belief_attacker_policy,
         )
-        self.state_space = enumerate_binary_states(self.num_nodes)
         self.observation_space = spaces.MultiBinary(self.num_nodes)
         self.attack_action_codec = BudgetedSubsetActionSpace(
             self.num_nodes,
@@ -219,7 +221,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
 
         self._rng = np.random.default_rng()
         self._state = np.zeros(self.num_nodes, dtype=np.int8)
-        self._belief = np.zeros(len(self.state_space), dtype=np.float64)
+        self._belief = np.zeros(_belief_size(config.belief_type, self.num_nodes), dtype=np.float64)
         self._step_count = 0
         self._last_defense = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
@@ -240,7 +242,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
             self.config.initial_compromised_probability,
             self._rng,
         )
-        self._belief = _belief_from_known_state(self.state_space, self._state)
+        self._belief = _initial_belief(self.config.belief_type, self.state_space, self._state)
         self._last_defense = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
@@ -323,6 +325,12 @@ def _validate_config(config: BasicCyberGraphDefenseConfig, num_nodes: int) -> No
         raise ValueError("max_steps must be at least 1.")
     if not 0.0 <= config.initial_compromised_probability <= 1.0:
         raise ValueError("initial_compromised_probability must be between 0 and 1.")
+    if config.belief_type not in {"exact", "factored"}:
+        raise ValueError("belief_type must be 'exact' or 'factored'.")
+    if config.factored_attack_probability is not None and not (
+        0.0 <= config.factored_attack_probability <= 1.0
+    ):
+        raise ValueError("factored_attack_probability must be between 0 and 1.")
 
 
 def _transition(
@@ -372,11 +380,56 @@ def _sample_initial_state(
     return (rng.random(num_nodes) < initial_compromised_probability).astype(np.int8)
 
 
-def _belief_from_known_state(state_space: np.ndarray, state: np.ndarray) -> np.ndarray:
+def _initial_belief(belief_type: str, state_space: np.ndarray, state: np.ndarray) -> np.ndarray:
+    if belief_type == "factored":
+        return state.astype(np.float64)
+    return _exact_belief_from_known_state(state_space, state)
+
+
+def _exact_belief_from_known_state(state_space: np.ndarray, state: np.ndarray) -> np.ndarray:
     matches = np.all(state_space == state, axis=1)
     belief = np.zeros(len(state_space), dtype=np.float64)
     belief[np.flatnonzero(matches)[0]] = 1.0
     return belief
+
+
+def _make_belief_updater(
+    config: BasicCyberGraphDefenseConfig,
+    num_nodes: int,
+    beta: np.ndarray,
+    attacker_policy,
+):
+    if config.belief_type == "factored":
+        attack_probability = config.factored_attack_probability
+        if attack_probability is None:
+            if config.max_attack_nodes is None:
+                attack_probability = 0.5
+            else:
+                attack_probability = min(1.0, max(0.0, config.max_attack_nodes / num_nodes))
+        return FactoredBeliefUpdater(
+            num_nodes=num_nodes,
+            beta=beta,
+            probe_miss_probability=config.probe_miss_probability,
+            attack_probability=float(attack_probability),
+        )
+    return BeliefUpdater(
+        num_nodes=num_nodes,
+        beta=beta,
+        probe_miss_probability=config.probe_miss_probability,
+        attacker_policy=attacker_policy,
+    )
+
+
+def _state_space(belief_type: str, num_nodes: int) -> np.ndarray:
+    if belief_type == "factored":
+        return np.empty((0, num_nodes), dtype=np.int8)
+    return enumerate_binary_states(num_nodes)
+
+
+def _belief_size(belief_type: str, num_nodes: int) -> int:
+    if belief_type == "factored":
+        return num_nodes
+    return 2**num_nodes
 
 
 def _info(
