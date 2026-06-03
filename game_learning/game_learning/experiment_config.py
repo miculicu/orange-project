@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 import tomllib
@@ -168,7 +169,7 @@ def build_basic_cyber_graph_defense_config(
     graph = build_graph(params)
     return graph, BasicCyberGraphDefenseConfig(
         graph=graph,
-        beta=_required(params, "beta"),
+        beta=_load_beta(params),
         probe_miss_probability=float(_required(params, "probe_miss_probability")),
         attacker_cost=float(params.get("attacker_cost", 0.05)),
         defender_cost=float(_required(params, "defender_cost")),
@@ -259,6 +260,27 @@ def _load_evaluation_spec(
         max_video_frames=_optional_int(evaluation_data.get("max_video_frames")),
         video_fps=int(evaluation_data.get("video_fps", 8)),
     )
+
+
+def _load_beta(params: dict[str, Any]) -> Any:
+    has_beta = "beta" in params
+    has_alpha = "alpha" in params
+    if has_beta and has_alpha:
+        raise ValueError("Specify only one of env.beta or env.alpha, not both.")
+    if has_beta:
+        return params["beta"]
+    if has_alpha:
+        return _alpha_to_beta(params["alpha"])
+    raise ValueError("Missing required config key: beta or alpha")
+
+
+def _alpha_to_beta(alpha: Any) -> Any:
+    if isinstance(alpha, list):
+        return [_alpha_to_beta(value) for value in alpha]
+    alpha_value = float(alpha)
+    if alpha_value < 0.0:
+        raise ValueError("alpha entries must be nonnegative when beta = 1 - exp(-alpha).")
+    return 1.0 - math.exp(-alpha_value)
 
 
 def _require_env(config: ExperimentConfig, env_id: str) -> None:

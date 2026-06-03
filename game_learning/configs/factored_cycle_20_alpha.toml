@@ -1,14 +1,16 @@
 [env]
-name = "factored_cycle_20"
+name = "factored_cycle_20_alpha"
 env_id = "basic_cyber_graph_defense"
 graph_type = "cycle"
 num_nodes = 25
-beta = 0.25
-probe_miss_probability = 0.15
-attacker_cost = 0.15
+# beta is computed as 1 - exp(-alpha).
+# alpha ~= 0.28768 gives beta ~= 0.25.
+alpha = 0.05
+probe_miss_probability = 0.3
+attacker_cost = 0.05
 defender_cost = 0.2
 max_steps = 100
-max_attack_nodes = 2
+max_attack_nodes = 3
 max_defend_nodes = 2
 allow_full_attack = false
 allow_full_defense = true
