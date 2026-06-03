@@ -1,15 +1,15 @@
 [env]
-name = "path_graph_7"
+name = "path_graph_7_iterative"
 env_id = "basic_cyber_graph_defense"
 graph_type = "path"
-num_nodes = 7
+num_nodes = 4
 beta = 0.1
-probe_miss_probability = 0.2
+probe_miss_probability = 0.1
 attacker_cost = 0.05
 defender_cost = 0.5
 max_steps = 50
-max_attack_nodes = 2
-max_defend_nodes = 2
+max_attack_nodes = 1
+max_defend_nodes = 1
 initial_compromised_probability = 0.0
 
 [training]
@@ -26,6 +26,6 @@ batch_size = 64
 gamma = 0.99
 
 [iterative]
-iterations = 3
-defender_timesteps = 10000
-attacker_timesteps = 10000
+iterations = 5
+defender_timesteps = 50000
+attacker_timesteps = 50000

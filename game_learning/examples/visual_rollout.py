@@ -7,15 +7,15 @@ from pathlib import Path
 import networkx as nx
 import numpy as np
 
-from game_learning import CyberGraphDefenseEnv, GameConfig
+from game_learning import BasicCyberGraphDefenseEnv, BasicCyberGraphDefenseConfig
 from game_learning.policies import RandomDefenderPolicy
 from game_learning.visualization import LearningGraphLiveView, draw_game_state
 
 
 def main() -> None:
     graph = nx.path_graph(4)
-    env = CyberGraphDefenseEnv(
-        GameConfig(
+    env = BasicCyberGraphDefenseEnv(
+        BasicCyberGraphDefenseConfig(
             graph=graph,
             beta=0.5,
             probe_miss_probability=0.2,

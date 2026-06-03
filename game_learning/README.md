@@ -21,6 +21,7 @@ Experiments live in `configs/*.toml`. Each config has two blocks:
 ```toml
 [env]
 name = "path_graph_7"
+env_id = "basic_cyber_graph_defense"
 graph_type = "path"
 num_nodes = 7
 beta = 0.1
@@ -46,8 +47,7 @@ batch_size = 64
 gamma = 0.99
 ```
 
-The graph belongs to `[env]` because it determines the observation and action
-spaces. Training settings and output paths belong to `[training]`.
+The `env_id` selects which environment builder interprets the rest of the `[env]` variables. The graph belongs to `[env]` because it determines the observation and action spaces. Training settings and output paths belong to `[training]`. To add another environment, add a new `env_id` case in `game_learning/experiment_config.py` and define whatever TOML variables that environment builder needs.
 
 Config-specific outputs are written to:
 
@@ -74,6 +74,21 @@ Train PPO from a config:
 ```bash
 python examples/train_ppo.py --config configs/path_graph_7.toml
 ```
+
+Run alternating defender/attacker fictitious-play-style training:
+
+```bash
+python examples/train_iterative.py --config configs/path_graph_7_iterative.toml
+```
+
+Iterative models are written to:
+
+```text
+outputs/path_graph_7_iterative/iterative/iteration_000/defender.zip
+outputs/path_graph_7_iterative/iterative/iteration_000/attacker.zip
+```
+
+The attacker observes the true state vector but not the defender's current reimage action. It only learns about reimages indirectly when controlled nodes become clean in the next state.
 
 Visualize the trained PPO defender for that same config:
 
