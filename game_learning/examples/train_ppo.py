@@ -1,8 +1,11 @@
-"""Optional Stable-Baselines3 training example for the defender policy."""
+"""Optional Stable-Baselines3 PPO training for the belief-based defender.
+
+The defender learns over the exact belief observation while a fixed roster of
+attackers probes the nodes. (For a joint defender/attacker equilibrium that
+also trains the attackers, see ``fictitious_play_demo.py``.)
+"""
 
 from __future__ import annotations
-
-import networkx as nx
 
 from game_learning import CyberGraphDefenseEnv, GameConfig
 
@@ -15,15 +18,14 @@ def main() -> None:
             "Install stable-baselines3 first: pip install stable-baselines3"
         ) from exc
 
-    graph = nx.path_graph(4)
     env = CyberGraphDefenseEnv(
         GameConfig(
-            graph=graph,
-            beta=0.5,
+            num_nodes=4,
+            alpha=0.5,
             probe_miss_probability=0.2,
+            num_attackers=2,
             defender_cost=0.1,
             max_steps=50,
-            max_attack_nodes=1,
             max_defend_nodes=1,
         )
     )
@@ -34,4 +36,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

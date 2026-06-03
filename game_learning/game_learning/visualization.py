@@ -71,9 +71,12 @@ def _draw_on_ax(
     ax.clear()
     node_count = graph.number_of_nodes()
     state = np.asarray(info.get("state", np.zeros(node_count)), dtype=np.int8)
-    attack = np.asarray(info.get("attack", np.zeros(node_count)), dtype=np.int8)
+    probe_counts = info.get("probe_counts", info.get("attack", np.zeros(node_count)))
+    attack = (np.asarray(probe_counts, dtype=np.int64) > 0).astype(np.int8)
     defense = np.asarray(info.get("defense", np.zeros(node_count)), dtype=np.int8)
-    detected = np.asarray(info.get("detected_probes", np.zeros(node_count)), dtype=np.int8)
+    detected = (
+        np.asarray(info.get("detected_probes", np.zeros(node_count)), dtype=np.int64) > 0
+    ).astype(np.int8)
     belief = np.asarray(info.get("belief", []), dtype=np.float64)
     node_list = list(graph.nodes)
 

@@ -27,15 +27,15 @@ def main() -> None:
             ".venv/bin/python examples/train_ppo.py"
         )
 
-    graph = nx.path_graph(4)
+    graph = nx.empty_graph(4)  # edge-free: nodes are independent
     env = CyberGraphDefenseEnv(
         GameConfig(
             graph=graph,
-            beta=0.5,
+            alpha=0.5,
             probe_miss_probability=0.2,
+            num_attackers=2,
             defender_cost=0.1,
             max_steps=10,
-            max_attack_nodes=1,
             max_defend_nodes=1,
         )
     )
