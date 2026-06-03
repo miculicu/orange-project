@@ -151,6 +151,8 @@ def build_basic_cyber_graph_defense_config(
         max_steps=int(_required(params, "max_steps")) if max_steps is None else max_steps,
         max_attack_nodes=int(_required(params, "max_attack_nodes")),
         max_defend_nodes=_optional_int(params.get("max_defend_nodes")),
+        allow_full_attack=bool(params.get("allow_full_attack", False)),
+        allow_full_defense=bool(params.get("allow_full_defense", False)),
         initial_compromised_probability=float(
             params.get("initial_compromised_probability", 0.0)
         ),

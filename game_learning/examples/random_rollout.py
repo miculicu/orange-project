@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import networkx as nx
-import numpy as np
-
 from game_learning import BasicCyberGraphDefenseEnv, BasicCyberGraphDefenseConfig
-from game_learning.policies import RandomDefenderPolicy
 
 
 def main() -> None:
@@ -25,13 +22,10 @@ def main() -> None:
         render_mode="ansi",
     )
     observation, info = env.reset(seed=7)
-    defender = RandomDefenderPolicy(num_nodes=graph.number_of_nodes(), max_defend_nodes=1)
-    rng = np.random.default_rng(7)
-
     print("initial belief argmax:", int(observation.argmax()), info["state"].tolist())
     done = False
     while not done:
-        action = defender.sample(rng)
+        action = env.action_space.sample()
         observation, reward, terminated, truncated, info = env.step(action)
         print(env.render(), "reward=", round(reward, 3), "belief_argmax=", int(observation.argmax()))
         done = terminated or truncated

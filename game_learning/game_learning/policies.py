@@ -1,4 +1,4 @@
-"""Fixed attacker policies for defender-side RL experiments."""
+"""Fixed policies for graph-learning experiments."""
 
 from __future__ import annotations
 
@@ -10,16 +10,22 @@ import numpy as np
 
 @dataclass(frozen=True)
 class UniformAttackerPolicy:
-    """Uniformly choose a subset of currently allowed nodes up to a budget."""
+    """Uniformly choose a legal attack subset.
+
+    Legal subsets have size at most `max_attack_nodes`. If
+    `allow_full_attack` is true, the all-node subset is also legal as one
+    special action when it is not already covered by the budget.
+    """
 
     num_nodes: int
-    max_attack_nodes: int = 1
+    max_attack_nodes: int | None = 1
     clean_only: bool = True
+    allow_full_attack: bool = False
 
     def __post_init__(self) -> None:
         if self.num_nodes < 1:
             raise ValueError("num_nodes must be at least 1.")
-        if self.max_attack_nodes < 0:
+        if self.max_attack_nodes is not None and self.max_attack_nodes < 0:
             raise ValueError("max_attack_nodes cannot be negative.")
 
     def sample(
@@ -54,13 +60,16 @@ class UniformAttackerPolicy:
         return np.flatnonzero(allowed)
 
     def _candidate_actions(self, allowed: np.ndarray) -> list[np.ndarray]:
-        max_size = min(self.max_attack_nodes, len(allowed))
+        budget = len(allowed) if self.max_attack_nodes is None else self.max_attack_nodes
+        max_size = min(budget, len(allowed))
         candidates: list[np.ndarray] = []
         for size in range(max_size + 1):
             for nodes in combinations(allowed.tolist(), size):
                 action = np.zeros(self.num_nodes, dtype=np.int8)
                 action[list(nodes)] = 1
                 candidates.append(action)
+        if self.allow_full_attack and len(allowed) == self.num_nodes and max_size < self.num_nodes:
+            candidates.append(np.ones(self.num_nodes, dtype=np.int8))
         return candidates
 
     def _is_valid_attack(self, attack: np.ndarray, allowed: np.ndarray) -> bool:
@@ -68,7 +77,9 @@ class UniformAttackerPolicy:
             return False
         if np.any((attack != 0) & (attack != 1)):
             return False
-        if int(attack.sum()) > self.max_attack_nodes:
+        attack_size = int(attack.sum())
+        full_attack = self.allow_full_attack and attack_size == self.num_nodes
+        if self.max_attack_nodes is not None and attack_size > self.max_attack_nodes and not full_attack:
             return False
         disallowed = np.ones(self.num_nodes, dtype=bool)
         disallowed[allowed] = False
@@ -80,11 +91,11 @@ class RandomDefenderPolicy:
     """Small baseline policy for examples outside RL training."""
 
     num_nodes: int
-    max_defend_nodes: int = 1
+    max_defend_nodes: int | None = 1
 
     def sample(self, rng: np.random.Generator) -> np.ndarray:
         action = np.zeros(self.num_nodes, dtype=np.int8)
-        budget = min(self.max_defend_nodes, self.num_nodes)
+        budget = self.num_nodes if self.max_defend_nodes is None else min(self.max_defend_nodes, self.num_nodes)
         if budget == 0:
             return action
         size = int(rng.integers(0, budget + 1))
@@ -92,4 +103,3 @@ class RandomDefenderPolicy:
             nodes = rng.choice(self.num_nodes, size=size, replace=False)
             action[nodes] = 1
         return action
-

@@ -5,10 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import networkx as nx
-import numpy as np
-
 from game_learning import BasicCyberGraphDefenseEnv, BasicCyberGraphDefenseConfig
-from game_learning.policies import RandomDefenderPolicy
 from game_learning.visualization import LearningGraphLiveView, draw_game_state
 
 
@@ -26,9 +23,6 @@ def main() -> None:
         )
     )
     _, info = env.reset(seed=7)
-    defender = RandomDefenderPolicy(num_nodes=graph.number_of_nodes(), max_defend_nodes=1)
-    rng = np.random.default_rng(7)
-
     output_dir = Path("rollout_frames")
     output_dir.mkdir(exist_ok=True)
     pos = draw_game_state(
@@ -43,7 +37,7 @@ def main() -> None:
     view.update(info)
     done = False
     while not done:
-        action = defender.sample(rng)
+        action = env.action_space.sample()
         _, reward, terminated, truncated, info = env.step(action)
         view.update(info, reward=reward)
         draw_game_state(
