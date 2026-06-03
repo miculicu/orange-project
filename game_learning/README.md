@@ -14,6 +14,10 @@ The first environment is single-agent from the defender's perspective. The
 attacker follows a fixed policy `pi_A(A | s, D)`, and a defender RL algorithm
 learns which nodes to reimage from the belief state.
 
+## Important Note
+
+The current environments use discrete budgeted subset actions. For example, with 4 nodes and `max_defend_nodes = 1`, PPO chooses among `do nothing`, `reimage 0`, `reimage 1`, `reimage 2`, and `reimage 3`. This avoids the older clipped `MultiBinary` behavior where an invalid all-ones action could be silently reduced to node 0. Models trained before this change should be retrained.
+
 ## Configs
 
 Experiments live in `configs/*.toml`. Each config has two blocks:
@@ -89,6 +93,18 @@ outputs/path_graph_7_iterative/iterative/iteration_000/attacker.zip
 ```
 
 The attacker observes the true state vector but not the defender's current reimage action. It only learns about reimages indirectly when controlled nodes become clean in the next state.
+
+Evaluate a trained attacker/defender pair and write CSV, summary JSON, graph frames, and PNG plots:
+
+```bash
+python examples/evaluate_matchup.py --config configs/path_graph_7_iterative.toml --iteration 0 --episodes 3 --steps 100 --max-frames 25 --frame-every 10
+```
+
+Evaluation outputs are written to:
+
+```text
+outputs/path_graph_7_iterative/evaluations/<name>/
+```
 
 Visualize the trained PPO defender for that same config:
 

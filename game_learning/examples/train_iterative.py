@@ -36,6 +36,7 @@ def main() -> None:
     attacker_policy = UniformAttackerPolicy(
         num_nodes=game_config.graph.number_of_nodes(),
         max_attack_nodes=game_config.max_attack_nodes,
+        allow_full_attack=game_config.allow_full_attack,
     )
 
     for iteration in range(experiment.iterative.iterations):
@@ -57,6 +58,7 @@ def main() -> None:
             model=defender_model,
             num_nodes=game_config.graph.number_of_nodes(),
             max_defend_nodes=game_config.max_defend_nodes,
+            allow_full_defense=game_config.allow_full_defense,
         )
 
         print(f"\n=== Iteration {iteration:03d}: train attacker against fixed defender ===")
@@ -74,6 +76,7 @@ def main() -> None:
             model=attacker_model,
             num_nodes=game_config.graph.number_of_nodes(),
             max_attack_nodes=game_config.max_attack_nodes,
+            allow_full_attack=game_config.allow_full_attack,
         )
 
 

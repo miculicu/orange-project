@@ -10,6 +10,7 @@ from gymnasium import spaces
 import networkx as nx
 import numpy as np
 
+from .action_spaces import BudgetedSubsetActionSpace
 from .belief import BeliefUpdater, enumerate_binary_states, node_compromise_probabilities
 from .policies import UniformAttackerPolicy
 
@@ -31,8 +32,10 @@ class BasicCyberGraphDefenseConfig:
     attacker_cost: float = 0.05
     defender_cost: float = 0.1
     max_steps: int = 50
-    max_attack_nodes: int = 1
+    max_attack_nodes: int | None = 1
     max_defend_nodes: int | None = 1
+    allow_full_attack: bool = False
+    allow_full_defense: bool = False
     initial_compromised_probability: float = 0.0
 
 
@@ -58,6 +61,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         self.attacker_policy = attacker_policy or UniformAttackerPolicy(
             num_nodes=self.num_nodes,
             max_attack_nodes=config.max_attack_nodes,
+            allow_full_attack=config.allow_full_attack,
         )
         self.belief_updater = BeliefUpdater(
             num_nodes=self.num_nodes,
@@ -72,7 +76,12 @@ class BasicCyberGraphDefenseEnv(gym.Env):
             shape=(len(self.state_space),),
             dtype=np.float32,
         )
-        self.action_space = spaces.MultiBinary(self.num_nodes)
+        self.defense_action_codec = BudgetedSubsetActionSpace(
+            self.num_nodes,
+            config.max_defend_nodes,
+            include_all_action=config.allow_full_defense,
+        )
+        self.action_space = self.defense_action_codec.space
         self.render_mode = render_mode
 
         self._rng = np.random.default_rng()
@@ -106,7 +115,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         self,
         action: np.ndarray,
     ) -> tuple[np.ndarray, float, bool, bool, dict]:
-        defense = _sanitize_binary_budget(action, self.num_nodes, self.config.max_defend_nodes)
+        defense = self.defense_action_codec.decode(action)
         attack = self.attacker_policy.sample(self._state, defense, self._rng)
         next_state, detected = _transition(
             state=self._state,
@@ -200,7 +209,12 @@ class BasicCyberGraphAttackEnv(gym.Env):
         )
         self.state_space = enumerate_binary_states(self.num_nodes)
         self.observation_space = spaces.MultiBinary(self.num_nodes)
-        self.action_space = spaces.MultiBinary(self.num_nodes)
+        self.attack_action_codec = BudgetedSubsetActionSpace(
+            self.num_nodes,
+            config.max_attack_nodes,
+            include_all_action=config.allow_full_attack,
+        )
+        self.action_space = self.attack_action_codec.space
         self.render_mode = render_mode
 
         self._rng = np.random.default_rng()
@@ -236,11 +250,12 @@ class BasicCyberGraphAttackEnv(gym.Env):
         self,
         action: np.ndarray,
     ) -> tuple[np.ndarray, float, bool, bool, dict]:
-        attack = _sanitize_binary_budget(action, self.num_nodes, self.config.max_attack_nodes)
+        attack = self.attack_action_codec.decode(action)
         defense = _sanitize_binary_budget(
             self.defender_policy.act(self._belief),
             self.num_nodes,
             self.config.max_defend_nodes,
+            allow_full_action=self.config.allow_full_defense,
         )
         next_state, detected = _transition(
             state=self._state,
@@ -391,10 +406,13 @@ def _sanitize_binary_budget(
     action: np.ndarray,
     num_nodes: int,
     budget: int | None,
+    allow_full_action: bool = False,
 ) -> np.ndarray:
     sanitized = np.asarray(action, dtype=np.int8).reshape(num_nodes)
     sanitized = (sanitized > 0).astype(np.int8)
     if budget is None:
+        return sanitized
+    if allow_full_action and int(sanitized.sum()) == num_nodes:
         return sanitized
     budget = max(0, budget)
     active = np.flatnonzero(sanitized)

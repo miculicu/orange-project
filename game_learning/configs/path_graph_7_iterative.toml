@@ -6,10 +6,12 @@ num_nodes = 4
 beta = 0.1
 probe_miss_probability = 0.1
 attacker_cost = 0.05
-defender_cost = 0.5
+defender_cost = 0.1
 max_steps = 50
-max_attack_nodes = 1
-max_defend_nodes = 1
+max_attack_nodes = 2
+max_defend_nodes = 2
+allow_full_attack = true
+allow_full_defense = true
 initial_compromised_probability = 0.0
 
 [training]
@@ -27,5 +29,5 @@ gamma = 0.99
 
 [iterative]
 iterations = 5
-defender_timesteps = 50000
-attacker_timesteps = 50000
+defender_timesteps = 20000
+attacker_timesteps = 20000
