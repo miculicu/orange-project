@@ -1,37 +1,48 @@
-"""Optional Stable-Baselines3 training example for the defender policy."""
+"""Train a PPO defender policy from an experiment config."""
 
 from __future__ import annotations
 
-import networkx as nx
+import argparse
+from pathlib import Path
 
-from game_learning import CyberGraphDefenseEnv, GameConfig
+from game_learning import CyberGraphDefenseEnv
+from game_learning.experiment_config import build_game_config, load_experiment_config
+from stable_baselines3 import PPO
+
+
+DEFAULT_CONFIG = Path("configs/path_graph_7.toml")
 
 
 def main() -> None:
-    try:
-        from stable_baselines3 import PPO
-    except ImportError as exc:
-        raise SystemExit(
-            "Install stable-baselines3 first: pip install stable-baselines3"
-        ) from exc
-
-    graph = nx.path_graph(4)
-    env = CyberGraphDefenseEnv(
-        GameConfig(
-            graph=graph,
-            beta=0.5,
-            probe_miss_probability=0.2,
-            defender_cost=0.1,
-            max_steps=50,
-            max_attack_nodes=1,
-            max_defend_nodes=1,
-        )
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="Path to a TOML experiment config.",
     )
-    model = PPO("MlpPolicy", env, verbose=1)
-    model.learn(total_timesteps=1000)
-    model.save("ppo_cybergraph_defender")
+    args = parser.parse_args()
+
+    experiment = load_experiment_config(args.config)
+    _, game_config = build_game_config(experiment)
+    env = CyberGraphDefenseEnv(game_config)
+    experiment.output_dir.mkdir(parents=True, exist_ok=True)
+
+    model = PPO(
+        "MlpPolicy",
+        env,
+        verbose=experiment.training.verbose,
+        seed=experiment.training.seed,
+        device=experiment.training.device,
+        learning_rate=experiment.training.learning_rate,
+        n_steps=experiment.training.n_steps,
+        batch_size=experiment.training.batch_size,
+        gamma=experiment.training.gamma,
+    )
+    model.learn(total_timesteps=experiment.training.total_timesteps)
+    model.save(experiment.model_path)
+    print(f"Saved model to {experiment.model_zip_path}")
 
 
 if __name__ == "__main__":
     main()
-

@@ -2,18 +2,39 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
-import networkx as nx
-
-from game_learning import CyberGraphDefenseEnv, GameConfig
+from game_learning import CyberGraphDefenseEnv
+from game_learning.experiment_config import build_game_config, load_experiment_config
 from game_learning.visualization import LearningGraphLiveView, draw_game_state
 
 
-MODEL_PATH = Path("ppo_cybergraph_defender.zip")
+DEFAULT_CONFIG = Path("configs/path_graph_7.toml")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="Path to the TOML config used for training.",
+    )
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=10,
+        help="Number of rollout steps to visualize.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=7,
+        help="Environment reset seed for visualization.",
+    )
+    args = parser.parse_args()
+
     try:
         from stable_baselines3 import PPO
     except ImportError as exc:
@@ -21,34 +42,24 @@ def main() -> None:
             "Install stable-baselines3 first: pip install stable-baselines3"
         ) from exc
 
-    if not MODEL_PATH.exists():
+    experiment = load_experiment_config(args.config)
+    if not experiment.model_zip_path.exists():
         raise SystemExit(
-            f"Missing {MODEL_PATH}. Train a model first with: "
-            ".venv/bin/python examples/train_ppo.py"
+            f"Missing {experiment.model_zip_path}. Train first with: "
+            f".venv/bin/python examples/train_ppo.py --config {args.config}"
         )
 
-    graph = nx.path_graph(4)
-    env = CyberGraphDefenseEnv(
-        GameConfig(
-            graph=graph,
-            beta=0.5,
-            probe_miss_probability=0.2,
-            defender_cost=0.1,
-            max_steps=10,
-            max_attack_nodes=1,
-            max_defend_nodes=1,
-        )
-    )
-    model = PPO.load(MODEL_PATH, env=env, device="cpu")
+    graph, game_config = build_game_config(experiment, max_steps=args.steps)
+    env = CyberGraphDefenseEnv(game_config)
+    model = PPO.load(experiment.model_zip_path, env=env, device=experiment.training.device)
 
-    observation, info = env.reset(seed=7)
-    output_dir = Path("ppo_rollout_frames")
-    output_dir.mkdir(exist_ok=True)
+    observation, info = env.reset(seed=args.seed)
+    experiment.ppo_frame_dir.mkdir(parents=True, exist_ok=True)
     pos = draw_game_state(
         graph,
         info,
-        title="PPO defender rollout - initial",
-        save_path=str(output_dir / "step_00.png"),
+        title=f"{experiment.env.name} PPO rollout - initial",
+        save_path=str(experiment.ppo_frame_dir / "step_00.png"),
         show=False,
     )
 
@@ -63,8 +74,8 @@ def main() -> None:
             graph,
             info,
             pos=pos,
-            title=f"PPO defender rollout - step {info['step']}",
-            save_path=str(output_dir / f"step_{info['step']:02d}.png"),
+            title=f"{experiment.env.name} PPO rollout - step {info['step']}",
+            save_path=str(experiment.ppo_frame_dir / f"step_{info['step']:02d}.png"),
             show=False,
         )
         done = terminated or truncated
