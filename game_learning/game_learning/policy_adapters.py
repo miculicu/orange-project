@@ -45,6 +45,7 @@ class SB3AttackerPolicy:
     max_attack_nodes: int | None = None
     allow_full_attack: bool = False
     deterministic: bool = True
+    observation_type: str = "state"
 
     def __post_init__(self) -> None:
         self.action_codec = BudgetedSubsetActionSpace(
@@ -52,6 +53,12 @@ class SB3AttackerPolicy:
             self.max_attack_nodes,
             include_all_action=self.allow_full_attack,
         )
+        self._last_state: np.ndarray | None = None
+        self._previous_attack = np.zeros(self.num_nodes, dtype=np.int8)
+
+    def reset(self) -> None:
+        self._last_state = None
+        self._previous_attack = np.zeros(self.num_nodes, dtype=np.int8)
 
     def sample(
         self,
@@ -60,8 +67,13 @@ class SB3AttackerPolicy:
         rng: np.random.Generator,
     ) -> np.ndarray:
         del defense, rng
-        action_index, _ = self.model.predict(state.astype(np.float32), deterministic=self.deterministic)
-        return self.action_codec.decode(action_index)
+        observation = self._observation(state)
+        action_index, _ = self.model.predict(observation.astype(np.float32), deterministic=self.deterministic)
+        attack = self.action_codec.decode(action_index)
+        current_state = self._extract_state(state)
+        self._last_state = current_state.copy()
+        self._previous_attack = attack.copy()
+        return attack
 
     def probability(
         self,
@@ -80,10 +92,37 @@ class SB3AttackerPolicy:
     def _action_probabilities(self, state: np.ndarray) -> np.ndarray:
         import torch
 
-        observation = state.astype(np.float32)
+        observation = self._observation(state).astype(np.float32)
         obs_tensor, _ = self.model.policy.obs_to_tensor(observation)
         with torch.no_grad():
             distribution = self.model.policy.get_distribution(obs_tensor)
             categorical = distribution.distribution
             probs = categorical.probs.detach().cpu().numpy()
         return probs.reshape(-1)[: self.action_codec.space.n]
+
+
+    def _extract_state(self, state_or_observation: np.ndarray) -> np.ndarray:
+        values = np.asarray(state_or_observation, dtype=np.int8)
+        if values.shape == (self.num_nodes,):
+            return values
+        if values.shape == (3 * self.num_nodes,):
+            return values[: self.num_nodes]
+        raise ValueError(
+            f"Attacker observation must have shape ({self.num_nodes},) or "
+            f"({3 * self.num_nodes},), got {values.shape}."
+        )
+
+    def _observation(self, state_or_observation: np.ndarray) -> np.ndarray:
+        values = np.asarray(state_or_observation, dtype=np.int8)
+        if values.shape == (3 * self.num_nodes,):
+            return values.astype(np.float32)
+        current_state = self._extract_state(values)
+        if self.observation_type == "state":
+            return current_state.astype(np.float32)
+        if self.observation_type == "state_previous_attack_cleared":
+            if self._last_state is None:
+                cleared_owned = np.zeros(self.num_nodes, dtype=np.int8)
+            else:
+                cleared_owned = ((self._last_state == 1) & (current_state == 0)).astype(np.int8)
+            return np.concatenate([current_state, self._previous_attack, cleared_owned]).astype(np.float32)
+        raise ValueError(f"Unsupported attacker observation type: {self.observation_type!r}")

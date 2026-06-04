@@ -80,6 +80,7 @@ def main() -> None:
         game_config.allow_full_defense,
         game_config.allow_full_attack,
         game_config.belief_type,
+        game_config.attacker_observation_type,
     )
     defender_policy = SB3DefenderPolicy(
         model=defender_model,
@@ -92,6 +93,7 @@ def main() -> None:
         num_nodes=num_nodes,
         max_attack_nodes=game_config.max_attack_nodes,
         allow_full_attack=game_config.allow_full_attack,
+        observation_type=game_config.attacker_observation_type,
     )
 
     rows = []
@@ -218,9 +220,18 @@ def _validate_model_spaces(
     allow_full_defense: bool,
     allow_full_attack: bool,
     belief_type: str,
+    attacker_observation_type: str,
 ) -> None:
-    expected_defender_observation = (num_nodes,) if belief_type == "factored" else (2**num_nodes,)
-    expected_attacker_observation = (num_nodes,)
+    expected_defender_observation = (
+        (num_nodes,)
+        if belief_type in {"factored", "learned_gnn"}
+        else (2**num_nodes,)
+    )
+    expected_attacker_observation = (
+        (3 * num_nodes,)
+        if attacker_observation_type == "state_previous_attack_cleared"
+        else (num_nodes,)
+    )
     expected_defender_actions = BudgetedSubsetActionSpace(
         num_nodes,
         max_defend_nodes,
@@ -247,7 +258,8 @@ def _validate_model_spaces(
     if attacker_model.observation_space.shape != expected_attacker_observation:
         raise SystemExit(
             "Attacker model observation space "
-            f"{attacker_model.observation_space} does not match config with {num_nodes} nodes."
+            f"{attacker_model.observation_space} does not match config with "
+            f"{num_nodes} nodes and attacker_observation_type={attacker_observation_type!r}."
         )
     if getattr(attacker_model.action_space, "n", None) != expected_attacker_actions:
         raise SystemExit(

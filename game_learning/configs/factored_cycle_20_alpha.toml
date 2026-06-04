@@ -10,7 +10,7 @@ probe_miss_probability = 0.3
 attacker_cost = 0.05
 defender_cost = 0.2
 max_steps = 100
-max_attack_nodes = 3
+max_attack_nodes = 2
 max_defend_nodes = 2
 allow_full_attack = false
 allow_full_defense = true
@@ -20,7 +20,7 @@ factored_attack_probability = 0.1
 
 [training]
 algorithm = "ppo"
-total_timesteps = 200000
+total_timesteps = 50000
 seed = 71
 device = "cpu"
 verbose = 1
@@ -33,8 +33,8 @@ gamma = 0.99
 
 [iterative]
 iterations = 8
-defender_timesteps = 200000
-attacker_timesteps = 200000
+defender_timesteps = 50000
+attacker_timesteps = 25000
 
 [evaluation]
 episodes = 5
@@ -43,6 +43,6 @@ seed = 71
 frame_every = 100
 max_frames = 30
 video = true
-video_every = 20
+video_every = 1
 max_video_frames = 1000
 video_fps = 8

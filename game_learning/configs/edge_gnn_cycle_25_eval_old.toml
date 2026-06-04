@@ -1,25 +1,30 @@
 [env]
-name = "factored_cycle_20"
+name = "edge_gnn_cycle_25"
 env_id = "basic_cyber_graph_defense"
 graph_type = "cycle"
-num_nodes = 25
-beta = 0.25
-probe_miss_probability = 0.15
-attacker_cost = 0.15
-defender_cost = 0.2
+num_nodes = 10
+# beta_base = 1 - exp(-alpha), then compromised neighbors add pressure:
+# beta_eff(v) = 1 - (1 - beta_base) * exp(-edge_compromise_weight * neighbor_pressure_v)
+alpha = 0.08
+edge_compromise_weight = 0.35
+probe_miss_probability = 0.25
+attacker_cost = 0.07
+defender_cost = 0.10
 max_steps = 100
-max_attack_nodes = 2
+max_attack_nodes = 3
 max_defend_nodes = 2
 allow_full_attack = false
 allow_full_defense = true
-initial_compromised_probability = 0.0
-belief_type = "factored"
-factored_attack_probability = 0.1
+initial_compromised_probability = 0.04
+belief_type = "learned_gnn"
+gnn_belief_model_path = "outputs/edge_factored_cycle_25/belief_models/gnn/gnn_belief.pt"
+gnn_belief_device = "cpu"
+factored_attack_probability = 0.12
 
 [training]
 algorithm = "ppo"
 total_timesteps = 50000
-seed = 71
+seed = 81
 device = "cpu"
 verbose = 1
 model_name = "ppo_defender"
@@ -37,7 +42,7 @@ attacker_timesteps = 25000
 [evaluation]
 episodes = 5
 steps = 1000
-seed = 71
+seed = 81
 frame_every = 100
 max_frames = 30
 video = true

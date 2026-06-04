@@ -39,6 +39,7 @@ class TrainingSpec:
     n_steps: int
     batch_size: int
     gamma: float
+    ent_coef: float
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,9 @@ class IterativeSpec:
     iterations: int
     defender_timesteps: int
     attacker_timesteps: int
+    eval_every_iterations: int
+    defender_ent_coef: float | None
+    attacker_ent_coef: float | None
 
 
 @dataclass(frozen=True)
@@ -173,6 +177,7 @@ def build_basic_cyber_graph_defense_config(
         probe_miss_probability=float(_required(params, "probe_miss_probability")),
         attacker_cost=float(params.get("attacker_cost", 0.05)),
         defender_cost=float(_required(params, "defender_cost")),
+        full_defense_cost_multiplier=float(params.get("full_defense_cost_multiplier", 1.0)),
         max_steps=int(_required(params, "max_steps")) if max_steps is None else max_steps,
         max_attack_nodes=int(_required(params, "max_attack_nodes")),
         max_defend_nodes=_optional_int(params.get("max_defend_nodes")),
@@ -185,6 +190,19 @@ def build_basic_cyber_graph_defense_config(
         factored_attack_probability=_optional_float(
             params.get("factored_attack_probability")
         ),
+        edge_compromise_weight=float(params.get("edge_compromise_weight", 0.0)),
+        gnn_belief_model_path=_optional_str(params.get("gnn_belief_model_path")),
+        gnn_belief_device=str(params.get("gnn_belief_device", "cpu")),
+        defender_reimage_compromised_bonus=float(params.get("defender_reimage_compromised_bonus", 0.0)),
+        defender_high_belief_reimage_bonus=float(params.get("defender_high_belief_reimage_bonus", 0.0)),
+        defender_missed_high_belief_penalty=float(params.get("defender_missed_high_belief_penalty", 0.0)),
+        defender_high_belief_threshold=float(params.get("defender_high_belief_threshold", 0.8)),
+        attacker_new_compromise_bonus=float(params.get("attacker_new_compromise_bonus", 0.0)),
+        attacker_owned_attack_penalty=float(params.get("attacker_owned_attack_penalty", 0.0)),
+        attacker_frontier_attack_bonus=float(params.get("attacker_frontier_attack_bonus", 0.0)),
+        attacker_discovery_attack_bonus=float(params.get("attacker_discovery_attack_bonus", 0.0)),
+        attacker_repeat_attack_penalty=float(params.get("attacker_repeat_attack_penalty", 0.0)),
+        attacker_observation_type=str(params.get("attacker_observation_type", "state")),
     )
 
 
@@ -231,6 +249,7 @@ def _load_training_spec(training_data: dict[str, Any]) -> TrainingSpec:
         n_steps=int(training_data.get("n_steps", 2048)),
         batch_size=int(training_data.get("batch_size", 64)),
         gamma=float(training_data.get("gamma", 0.99)),
+        ent_coef=float(training_data.get("ent_coef", 0.0)),
     )
 
 
@@ -242,6 +261,9 @@ def _load_iterative_spec(
         iterations=int(iterative_data.get("iterations", 3)),
         defender_timesteps=int(iterative_data.get("defender_timesteps", training.total_timesteps)),
         attacker_timesteps=int(iterative_data.get("attacker_timesteps", training.total_timesteps)),
+        eval_every_iterations=int(iterative_data.get("eval_every_iterations", 0)),
+        defender_ent_coef=_optional_float(iterative_data.get("defender_ent_coef")),
+        attacker_ent_coef=_optional_float(iterative_data.get("attacker_ent_coef")),
     )
 
 
@@ -306,3 +328,9 @@ def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)

@@ -1,0 +1,63 @@
+[env]
+name = "edge_factored_reset_25_shaped_frontier_cleanstart"
+env_id = "basic_cyber_graph_defense"
+graph_type = "cycle"
+num_nodes = 25
+# beta_base = 1 - exp(-alpha) ~= 0.077, with compromised neighbors raising
+# effective compromise probability. This makes full reset more strategically useful.
+alpha = 0.08
+edge_compromise_weight = 0.45
+probe_miss_probability = 0.3
+attacker_cost = 0.03
+defender_cost = 0.16
+full_defense_cost_multiplier = 1.25
+max_steps = 100
+max_attack_nodes = 2
+max_defend_nodes = 2
+allow_full_attack = false
+allow_full_defense = true
+initial_compromised_probability = 0.0
+belief_type = "factored"
+factored_attack_probability = 0.12
+
+# Optional reward shaping for PPO. These terms make useful actions easier to learn
+# without changing the hard transition rules. Set all to 0.0 for the unshaped game.
+defender_reimage_compromised_bonus = 0.70
+defender_high_belief_reimage_bonus = 0.03
+defender_missed_high_belief_penalty = 0.02
+defender_high_belief_threshold = 0.8
+attacker_new_compromise_bonus = 0.70
+attacker_owned_attack_penalty = 0.70
+attacker_frontier_attack_bonus = 0.24
+attacker_discovery_attack_bonus = 0.05
+attacker_repeat_attack_penalty = 0.10
+
+[training]
+algorithm = "ppo"
+total_timesteps = 100000
+seed = 231
+device = "cpu"
+verbose = 1
+model_name = "ppo_defender"
+output_root = "outputs"
+learning_rate = 0.0001
+n_steps = 2048
+batch_size = 256
+gamma = 0.99
+
+[iterative]
+iterations = 15
+defender_timesteps = 100000
+attacker_timesteps = 50000
+eval_every_iterations = 5
+
+[evaluation]
+episodes = 5
+steps = 1000
+seed = 231
+frame_every = 100
+max_frames = 30
+video = true
+video_every = 1
+max_video_frames = 1000
+video_fps = 8
