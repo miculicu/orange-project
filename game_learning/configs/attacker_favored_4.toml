@@ -39,6 +39,6 @@ seed = 31
 frame_every = 100
 max_frames = 30
 video = true
-video_every = 5
+video_every = 1
 max_video_frames = 1000
 video_fps = 8

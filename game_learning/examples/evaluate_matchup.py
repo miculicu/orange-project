@@ -219,7 +219,11 @@ def _validate_model_spaces(
     allow_full_attack: bool,
     belief_type: str,
 ) -> None:
-    expected_defender_observation = (num_nodes,) if belief_type == "factored" else (2**num_nodes,)
+    expected_defender_observation = (
+        (num_nodes,)
+        if belief_type in {"factored", "learned_gnn"}
+        else (2**num_nodes,)
+    )
     expected_attacker_observation = (num_nodes,)
     expected_defender_actions = BudgetedSubsetActionSpace(
         num_nodes,

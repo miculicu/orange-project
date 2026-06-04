@@ -31,6 +31,8 @@ class BeliefUpdater:
     beta: np.ndarray
     probe_miss_probability: float
     attacker_policy: AttackerPolicy
+    adjacency: np.ndarray | None = None
+    edge_compromise_weight: float = 0.0
     epsilon: float = 1e-12
 
     def __post_init__(self) -> None:
@@ -41,6 +43,12 @@ class BeliefUpdater:
             raise ValueError("beta entries must be between 0 and 1.")
         if not 0.0 <= self.probe_miss_probability <= 1.0:
             raise ValueError("probe_miss_probability must be between 0 and 1.")
+        if self.edge_compromise_weight < 0.0:
+            raise ValueError("edge_compromise_weight must be nonnegative.")
+        if self.adjacency is not None:
+            adjacency = np.asarray(self.adjacency, dtype=np.float64)
+            if adjacency.shape != (self.num_nodes, self.num_nodes):
+                raise ValueError("adjacency must have shape (num_nodes, num_nodes).")
 
     @property
     def states(self) -> np.ndarray:
@@ -84,7 +92,14 @@ class BeliefUpdater:
                 if likelihood <= 0.0:
                     continue
 
-                q = node_compromise_probabilities(state, attack, defense, self.beta)
+                q = node_compromise_probabilities(
+                    state,
+                    attack,
+                    defense,
+                    self.beta,
+                    adjacency=self.adjacency,
+                    edge_compromise_weight=self.edge_compromise_weight,
+                )
                 transition_probs = factorized_transition_probabilities(next_states, q)
                 posterior += prior_mass * policy_prob * likelihood * transition_probs
 
@@ -106,6 +121,8 @@ class FactoredBeliefUpdater:
     beta: np.ndarray
     probe_miss_probability: float
     attack_probability: float
+    adjacency: np.ndarray | None = None
+    edge_compromise_weight: float = 0.0
 
     def __post_init__(self) -> None:
         beta = np.asarray(self.beta, dtype=np.float64)
@@ -117,6 +134,12 @@ class FactoredBeliefUpdater:
             raise ValueError("probe_miss_probability must be between 0 and 1.")
         if not 0.0 <= self.attack_probability <= 1.0:
             raise ValueError("attack_probability must be between 0 and 1.")
+        if self.edge_compromise_weight < 0.0:
+            raise ValueError("edge_compromise_weight must be nonnegative.")
+        if self.adjacency is not None:
+            adjacency = np.asarray(self.adjacency, dtype=np.float64)
+            if adjacency.shape != (self.num_nodes, self.num_nodes):
+                raise ValueError("adjacency must have shape (num_nodes, num_nodes).")
 
     def update(
         self,
@@ -130,6 +153,13 @@ class FactoredBeliefUpdater:
         defense = _as_binary_vector(defense, self.num_nodes, "defense")
 
         posterior = np.zeros(self.num_nodes, dtype=np.float64)
+        effective_beta = effective_compromise_probabilities_from_belief(
+            belief,
+            defense,
+            self.beta,
+            adjacency=self.adjacency,
+            edge_compromise_weight=self.edge_compromise_weight,
+        )
         rho = self.attack_probability
         nu = self.probe_miss_probability
         missed_denominator = 1.0 - rho * (1.0 - nu)
@@ -141,11 +171,11 @@ class FactoredBeliefUpdater:
             if defense[node]:
                 posterior[node] = 0.0
             elif observation[node]:
-                posterior[node] = belief[node] + (1.0 - belief[node]) * self.beta[node]
+                posterior[node] = belief[node] + (1.0 - belief[node]) * effective_beta[node]
             else:
                 posterior[node] = (
                     belief[node]
-                    + (1.0 - belief[node]) * missed_attack_probability * self.beta[node]
+                    + (1.0 - belief[node]) * missed_attack_probability * effective_beta[node]
                 )
 
         return np.clip(posterior, 0.0, 1.0)
@@ -156,20 +186,78 @@ def node_compromise_probabilities(
     attack: np.ndarray,
     defense: np.ndarray,
     beta: np.ndarray,
+    adjacency: np.ndarray | None = None,
+    edge_compromise_weight: float = 0.0,
 ) -> np.ndarray:
-    """Compute q_v(s, A, D) for every node v."""
+    """Compute q_v(s, A, D) for every node v.
+
+    If edge_compromise_weight > 0, compromised, non-defended neighbors
+    increase the success probability on attacked clean nodes.
+    """
     state = np.asarray(state, dtype=np.int8)
     attack = np.asarray(attack, dtype=np.int8)
     defense = np.asarray(defense, dtype=np.int8)
     beta = np.asarray(beta, dtype=np.float64)
+    effective_beta = effective_compromise_probabilities_from_state(
+        state,
+        defense,
+        beta,
+        adjacency=adjacency,
+        edge_compromise_weight=edge_compromise_weight,
+    )
 
     q = np.zeros_like(beta, dtype=np.float64)
     not_defended = defense == 0
     q[not_defended & (state == 1)] = 1.0
-    q[not_defended & (state == 0) & (attack == 1)] = beta[
-        not_defended & (state == 0) & (attack == 1)
-    ]
+    attacked_clean = not_defended & (state == 0) & (attack == 1)
+    q[attacked_clean] = effective_beta[attacked_clean]
     return q
+
+
+def effective_compromise_probabilities_from_state(
+    state: np.ndarray,
+    defense: np.ndarray,
+    beta: np.ndarray,
+    adjacency: np.ndarray | None = None,
+    edge_compromise_weight: float = 0.0,
+) -> np.ndarray:
+    state = np.asarray(state, dtype=np.float64)
+    defense = np.asarray(defense, dtype=np.int8)
+    defended_state = state.copy()
+    defended_state[defense == 1] = 0.0
+    return _effective_compromise_probabilities(
+        defended_state, beta, adjacency, edge_compromise_weight
+    )
+
+
+def effective_compromise_probabilities_from_belief(
+    belief: np.ndarray,
+    defense: np.ndarray,
+    beta: np.ndarray,
+    adjacency: np.ndarray | None = None,
+    edge_compromise_weight: float = 0.0,
+) -> np.ndarray:
+    belief = np.asarray(belief, dtype=np.float64)
+    defense = np.asarray(defense, dtype=np.int8)
+    defended_belief = belief.copy()
+    defended_belief[defense == 1] = 0.0
+    return _effective_compromise_probabilities(
+        defended_belief, beta, adjacency, edge_compromise_weight
+    )
+
+
+def _effective_compromise_probabilities(
+    pressure_source: np.ndarray,
+    beta: np.ndarray,
+    adjacency: np.ndarray | None,
+    edge_compromise_weight: float,
+) -> np.ndarray:
+    beta = np.asarray(beta, dtype=np.float64)
+    if adjacency is None or edge_compromise_weight <= 0.0:
+        return beta
+    adjacency = np.asarray(adjacency, dtype=np.float64)
+    neighbor_pressure = adjacency @ pressure_source
+    return 1.0 - (1.0 - beta) * np.exp(-edge_compromise_weight * neighbor_pressure)
 
 
 def factorized_transition_probabilities(

@@ -12,6 +12,7 @@ import numpy as np
 
 from .action_spaces import BudgetedSubsetActionSpace
 from .belief import BeliefUpdater, FactoredBeliefUpdater, enumerate_binary_states, node_compromise_probabilities
+from .gnn_belief import LearnedGNNBeliefUpdater
 from .policies import UniformAttackerPolicy
 
 
@@ -31,6 +32,7 @@ class BasicCyberGraphDefenseConfig:
     probe_miss_probability: float = 0.2
     attacker_cost: float = 0.05
     defender_cost: float = 0.1
+    full_defense_cost_multiplier: float = 1.0
     max_steps: int = 50
     max_attack_nodes: int | None = 1
     max_defend_nodes: int | None = 1
@@ -39,6 +41,15 @@ class BasicCyberGraphDefenseConfig:
     initial_compromised_probability: float = 0.0
     belief_type: str = "exact"
     factored_attack_probability: float | None = None
+    edge_compromise_weight: float = 0.0
+    gnn_belief_model_path: str | None = None
+    gnn_belief_device: str = "cpu"
+    defender_reimage_compromised_bonus: float = 0.0
+    defender_high_belief_reimage_bonus: float = 0.0
+    defender_missed_high_belief_penalty: float = 0.0
+    defender_high_belief_threshold: float = 0.8
+    attacker_new_compromise_bonus: float = 0.0
+    attacker_owned_attack_penalty: float = 0.0
 
 
 class BasicCyberGraphDefenseEnv(gym.Env):
@@ -60,6 +71,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         _validate_config(config, self.num_nodes)
 
         self.beta = _expand_beta(config.beta, self.num_nodes)
+        self.adjacency = _adjacency_matrix(self.graph, self.nodes)
         self.attacker_policy = attacker_policy or UniformAttackerPolicy(
             num_nodes=self.num_nodes,
             max_attack_nodes=config.max_attack_nodes,
@@ -119,6 +131,8 @@ class BasicCyberGraphDefenseEnv(gym.Env):
     ) -> tuple[np.ndarray, float, bool, bool, dict]:
         defense = self.defense_action_codec.decode(action)
         attack = self.attacker_policy.sample(self._state, defense, self._rng)
+        previous_state = self._state.copy()
+        previous_belief = self._belief.copy()
         next_state, detected = _transition(
             state=self._state,
             attack=attack,
@@ -126,6 +140,8 @@ class BasicCyberGraphDefenseEnv(gym.Env):
             beta=self.beta,
             probe_miss_probability=self.config.probe_miss_probability,
             rng=self._rng,
+            adjacency=self.adjacency,
+            edge_compromise_weight=self.config.edge_compromise_weight,
         )
 
         self._belief = self.belief_updater.update(self._belief, detected, defense)
@@ -135,15 +151,18 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         self._last_observation = detected
 
         defender_reward, attacker_reward = _rewards(
-            next_state,
-            attack,
-            defense,
-            self.config.attacker_cost,
-            self.config.defender_cost,
+            previous_state=previous_state,
+            next_state=next_state,
+            attack=attack,
+            defense=defense,
+            defender_belief=previous_belief,
+            state_space=self.state_space,
+            config=self.config,
         )
         truncated = self._step_count >= self.config.max_steps
         info = self._info(defense=defense)
         info["attacker_reward"] = attacker_reward
+        info["defender_reward"] = defender_reward
         return self._observation(), defender_reward, False, truncated, info
 
     def render(self) -> str | None:
@@ -203,6 +222,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
         _validate_config(config, self.num_nodes)
 
         self.beta = _expand_beta(config.beta, self.num_nodes)
+        self.adjacency = _adjacency_matrix(self.graph, self.nodes)
         self.state_space = _state_space(config.belief_type, self.num_nodes)
         self.belief_updater = _make_belief_updater(
             config=config,
@@ -259,6 +279,8 @@ class BasicCyberGraphAttackEnv(gym.Env):
             self.config.max_defend_nodes,
             allow_full_action=self.config.allow_full_defense,
         )
+        previous_state = self._state.copy()
+        previous_belief = self._belief.copy()
         next_state, detected = _transition(
             state=self._state,
             attack=attack,
@@ -266,6 +288,8 @@ class BasicCyberGraphAttackEnv(gym.Env):
             beta=self.beta,
             probe_miss_probability=self.config.probe_miss_probability,
             rng=self._rng,
+            adjacency=self.adjacency,
+            edge_compromise_weight=self.config.edge_compromise_weight,
         )
 
         self._belief = self.belief_updater.update(self._belief, detected, defense)
@@ -276,14 +300,17 @@ class BasicCyberGraphAttackEnv(gym.Env):
         self._last_observation = detected
 
         defender_reward, attacker_reward = _rewards(
-            next_state,
-            attack,
-            defense,
-            self.config.attacker_cost,
-            self.config.defender_cost,
+            previous_state=previous_state,
+            next_state=next_state,
+            attack=attack,
+            defense=defense,
+            defender_belief=previous_belief,
+            state_space=self.state_space,
+            config=self.config,
         )
         truncated = self._step_count >= self.config.max_steps
         info = self._info()
+        info["attacker_reward"] = attacker_reward
         info["defender_reward"] = defender_reward
         return self._observation(), attacker_reward, False, truncated, info
 
@@ -325,12 +352,30 @@ def _validate_config(config: BasicCyberGraphDefenseConfig, num_nodes: int) -> No
         raise ValueError("max_steps must be at least 1.")
     if not 0.0 <= config.initial_compromised_probability <= 1.0:
         raise ValueError("initial_compromised_probability must be between 0 and 1.")
-    if config.belief_type not in {"exact", "factored"}:
-        raise ValueError("belief_type must be 'exact' or 'factored'.")
+    if config.belief_type not in {"exact", "factored", "learned_gnn"}:
+        raise ValueError("belief_type must be 'exact', 'factored', or 'learned_gnn'.")
+    if config.belief_type == "learned_gnn" and not config.gnn_belief_model_path:
+        raise ValueError("gnn_belief_model_path is required when belief_type='learned_gnn'.")
     if config.factored_attack_probability is not None and not (
         0.0 <= config.factored_attack_probability <= 1.0
     ):
         raise ValueError("factored_attack_probability must be between 0 and 1.")
+    if config.edge_compromise_weight < 0.0:
+        raise ValueError("edge_compromise_weight must be nonnegative.")
+    if config.full_defense_cost_multiplier < 0.0:
+        raise ValueError("full_defense_cost_multiplier must be nonnegative.")
+    shaping_values = {
+        "defender_reimage_compromised_bonus": config.defender_reimage_compromised_bonus,
+        "defender_high_belief_reimage_bonus": config.defender_high_belief_reimage_bonus,
+        "defender_missed_high_belief_penalty": config.defender_missed_high_belief_penalty,
+        "attacker_new_compromise_bonus": config.attacker_new_compromise_bonus,
+        "attacker_owned_attack_penalty": config.attacker_owned_attack_penalty,
+    }
+    for name, value in shaping_values.items():
+        if value < 0.0:
+            raise ValueError(f"{name} must be nonnegative.")
+    if not 0.0 <= config.defender_high_belief_threshold <= 1.0:
+        raise ValueError("defender_high_belief_threshold must be between 0 and 1.")
 
 
 def _transition(
@@ -340,8 +385,17 @@ def _transition(
     beta: np.ndarray,
     probe_miss_probability: float,
     rng: np.random.Generator,
+    adjacency: np.ndarray | None = None,
+    edge_compromise_weight: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    q = node_compromise_probabilities(state, attack, defense, beta)
+    q = node_compromise_probabilities(
+        state,
+        attack,
+        defense,
+        beta,
+        adjacency=adjacency,
+        edge_compromise_weight=edge_compromise_weight,
+    )
     next_state = (rng.random(len(state)) < q).astype(np.int8)
     detected = _sample_probe_observation(attack, probe_miss_probability, rng)
     return next_state, detected
@@ -361,15 +415,51 @@ def _sample_probe_observation(
 
 
 def _rewards(
+    *,
+    previous_state: np.ndarray,
     next_state: np.ndarray,
     attack: np.ndarray,
     defense: np.ndarray,
-    attacker_cost: float,
-    defender_cost: float,
+    defender_belief: np.ndarray,
+    state_space: np.ndarray,
+    config: BasicCyberGraphDefenseConfig,
 ) -> tuple[float, float]:
-    defender_reward = float(len(next_state) - int(next_state.sum()) - defender_cost * int(defense.sum()))
-    attacker_reward = float(int(next_state.sum()) - attacker_cost * int(attack.sum()))
+    defense_count = int(defense.sum())
+    if defense_count == len(next_state):
+        defense_cost_paid = (
+            config.defender_cost
+            * defense_count
+            * config.full_defense_cost_multiplier
+        )
+    else:
+        defense_cost_paid = config.defender_cost * defense_count
+
+    defender_reward = float(len(next_state) - int(next_state.sum()) - defense_cost_paid)
+    attacker_reward = float(int(next_state.sum()) - config.attacker_cost * int(attack.sum()))
+
+    reimaged_compromised = int(np.sum((previous_state == 1) & (defense == 1) & (next_state == 0)))
+    newly_compromised = int(np.sum((previous_state == 0) & (next_state == 1)))
+    owned_attacks = int(np.sum((previous_state == 1) & (attack == 1)))
+    node_belief = _node_belief(defender_belief, state_space, len(next_state))
+    high_belief_reimaged = float(np.sum(node_belief * defense))
+    missed_high_belief = int(np.sum((node_belief >= config.defender_high_belief_threshold) & (defense == 0)))
+
+    defender_reward += (
+        config.defender_reimage_compromised_bonus * reimaged_compromised
+        + config.defender_high_belief_reimage_bonus * high_belief_reimaged
+        - config.defender_missed_high_belief_penalty * missed_high_belief
+    )
+    attacker_reward += (
+        config.attacker_new_compromise_bonus * newly_compromised
+        - config.attacker_owned_attack_penalty * owned_attacks
+    )
     return defender_reward, attacker_reward
+
+
+def _node_belief(belief: np.ndarray, state_space: np.ndarray, num_nodes: int) -> np.ndarray:
+    if len(belief) == num_nodes:
+        return belief.astype(np.float64, copy=False)
+    return np.asarray(belief, dtype=np.float64) @ state_space
 
 
 def _sample_initial_state(
@@ -381,7 +471,7 @@ def _sample_initial_state(
 
 
 def _initial_belief(belief_type: str, state_space: np.ndarray, state: np.ndarray) -> np.ndarray:
-    if belief_type == "factored":
+    if belief_type in {"factored", "learned_gnn"}:
         return state.astype(np.float64)
     return _exact_belief_from_known_state(state_space, state)
 
@@ -399,6 +489,12 @@ def _make_belief_updater(
     beta: np.ndarray,
     attacker_policy,
 ):
+    if config.belief_type == "learned_gnn":
+        return LearnedGNNBeliefUpdater(
+            model_path=str(config.gnn_belief_model_path),
+            adjacency=_adjacency_matrix(config.graph, list(config.graph.nodes)),
+            device=config.gnn_belief_device,
+        )
     if config.belief_type == "factored":
         attack_probability = config.factored_attack_probability
         if attack_probability is None:
@@ -411,23 +507,27 @@ def _make_belief_updater(
             beta=beta,
             probe_miss_probability=config.probe_miss_probability,
             attack_probability=float(attack_probability),
+            adjacency=_adjacency_matrix(config.graph, list(config.graph.nodes)),
+            edge_compromise_weight=config.edge_compromise_weight,
         )
     return BeliefUpdater(
         num_nodes=num_nodes,
         beta=beta,
         probe_miss_probability=config.probe_miss_probability,
         attacker_policy=attacker_policy,
+        adjacency=_adjacency_matrix(config.graph, list(config.graph.nodes)),
+        edge_compromise_weight=config.edge_compromise_weight,
     )
 
 
 def _state_space(belief_type: str, num_nodes: int) -> np.ndarray:
-    if belief_type == "factored":
+    if belief_type in {"factored", "learned_gnn"}:
         return np.empty((0, num_nodes), dtype=np.int8)
     return enumerate_binary_states(num_nodes)
 
 
 def _belief_size(belief_type: str, num_nodes: int) -> int:
-    if belief_type == "factored":
+    if belief_type in {"factored", "learned_gnn"}:
         return num_nodes
     return 2**num_nodes
 
@@ -473,6 +573,10 @@ def _sanitize_binary_budget(
         sanitized[:] = 0
         sanitized[active[:budget]] = 1
     return sanitized
+
+
+def _adjacency_matrix(graph: nx.Graph, nodes: list) -> np.ndarray:
+    return nx.to_numpy_array(graph, nodelist=nodes, dtype=np.float64)
 
 
 def _expand_beta(beta: float | list[float] | np.ndarray, num_nodes: int) -> np.ndarray:
