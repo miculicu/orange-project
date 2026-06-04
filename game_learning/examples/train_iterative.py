@@ -65,12 +65,19 @@ def main() -> None:
         defender_model.learn(total_timesteps=experiment.iterative.defender_timesteps)
         defender_model.save(experiment.defender_model_path(iteration))
         print(f"Saved defender to {experiment.defender_model_zip_path(iteration)}")
+        defender_progress_csv = defender_log_dir / "progress.csv"
         summary_rows.append(_summarize_progress(
-            defender_log_dir / "progress.csv",
+            defender_progress_csv,
             role="defender",
             iteration=iteration,
             model_path=experiment.defender_model_zip_path(iteration),
         ))
+        _plot_iteration_progress_curves(
+            experiment.iterative_dir / "training_metrics" / "plots" / "per_iteration",
+            defender_progress_csv,
+            role="defender",
+            iteration=iteration,
+        )
         _write_training_artifacts(experiment.iterative_dir, summary_rows)
 
         fixed_defender = SB3DefenderPolicy(
@@ -92,12 +99,19 @@ def main() -> None:
         attacker_model.learn(total_timesteps=experiment.iterative.attacker_timesteps)
         attacker_model.save(experiment.attacker_model_path(iteration))
         print(f"Saved attacker to {experiment.attacker_model_zip_path(iteration)}")
+        attacker_progress_csv = attacker_log_dir / "progress.csv"
         summary_rows.append(_summarize_progress(
-            attacker_log_dir / "progress.csv",
+            attacker_progress_csv,
             role="attacker",
             iteration=iteration,
             model_path=experiment.attacker_model_zip_path(iteration),
         ))
+        _plot_iteration_progress_curves(
+            experiment.iterative_dir / "training_metrics" / "plots" / "per_iteration",
+            attacker_progress_csv,
+            role="attacker",
+            iteration=iteration,
+        )
         _write_training_artifacts(experiment.iterative_dir, summary_rows)
 
         attacker_policy = SB3AttackerPolicy(
@@ -219,7 +233,99 @@ def _plot_training_summary(plot_dir: Path, rows: list[dict[str, Any]]) -> None:
     _plot_metric(plot_dir / "policy_gradient_loss.png", rows, "final_train__policy_gradient_loss", "policy gradient loss")
     _plot_metric(plot_dir / "explained_variance.png", rows, "final_train__explained_variance", "explained variance")
     _plot_metric(plot_dir / "fps.png", rows, "final_time__fps", "fps")
+    _plot_combined_progress_curves(plot_dir / "within_iteration_episode_reward_mean.png", rows, "rollout/ep_rew_mean", "episode reward mean during each PPO fit")
+    _plot_combined_progress_curves(plot_dir / "within_iteration_value_loss.png", rows, "train/value_loss", "value loss during each PPO fit")
 
+
+
+def _plot_iteration_progress_curves(
+    plot_dir: Path,
+    progress_csv: Path,
+    *,
+    role: str,
+    iteration: int,
+) -> None:
+    rows = _read_progress_rows(progress_csv)
+    if not rows:
+        return
+    role_dir = plot_dir / role
+    role_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"iteration_{iteration:03d}_{role}"
+    _plot_progress_metric(
+        role_dir / f"{stem}_episode_reward_mean.png",
+        rows,
+        "rollout/ep_rew_mean",
+        f"iteration {iteration:03d} {role} reward mean",
+    )
+    _plot_progress_metric(
+        role_dir / f"{stem}_value_loss.png",
+        rows,
+        "train/value_loss",
+        f"iteration {iteration:03d} {role} value loss",
+    )
+
+
+def _plot_combined_progress_curves(
+    path: Path,
+    summary_rows: list[dict[str, Any]],
+    metric: str,
+    ylabel: str,
+) -> None:
+    fig, ax = plt.subplots(figsize=(10, 5))
+    plotted = False
+    for row in summary_rows:
+        progress_csv = Path(str(row.get("progress_csv", "")))
+        progress_rows = _read_progress_rows(progress_csv)
+        xs, ys = _progress_xy(progress_rows, metric)
+        if not xs:
+            continue
+        label = f"{row['role']} {int(row['iteration']):03d}"
+        ax.plot(xs, ys, marker="o", markersize=3, linewidth=1.2, label=label)
+        plotted = True
+    ax.set_xlabel("timesteps inside PPO fit")
+    ax.set_ylabel(ylabel)
+    ax.set_title(ylabel)
+    ax.grid(True, alpha=0.25)
+    if plotted:
+        ax.legend(loc="best", fontsize=8, ncols=2)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def _plot_progress_metric(path: Path, rows: list[dict[str, str]], metric: str, title: str) -> None:
+    xs, ys = _progress_xy(rows, metric)
+    if not xs:
+        return
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(xs, ys, marker="o")
+    ax.set_xlabel("timesteps inside PPO fit")
+    ax.set_ylabel(metric)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def _progress_xy(rows: list[dict[str, str]], metric: str) -> tuple[list[float], list[float]]:
+    xs: list[float] = []
+    ys: list[float] = []
+    for index, row in enumerate(rows):
+        y = _to_float(row.get(metric))
+        if y is None:
+            continue
+        x = _to_float(row.get("time/total_timesteps"))
+        xs.append(float(index) if x is None else x)
+        ys.append(y)
+    return xs, ys
+
+
+def _read_progress_rows(progress_csv: Path) -> list[dict[str, str]]:
+    if not progress_csv.exists():
+        return []
+    with progress_csv.open("r", newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
 
 def _plot_metric(path: Path, rows: list[dict[str, Any]], metric: str, ylabel: str) -> None:
     fig, ax = plt.subplots(figsize=(8, 4))
