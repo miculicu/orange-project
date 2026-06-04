@@ -50,6 +50,9 @@ class BasicCyberGraphDefenseConfig:
     defender_high_belief_threshold: float = 0.8
     attacker_new_compromise_bonus: float = 0.0
     attacker_owned_attack_penalty: float = 0.0
+    attacker_frontier_attack_bonus: float = 0.0
+    attacker_discovery_attack_bonus: float = 0.0
+    attacker_repeat_attack_penalty: float = 0.0
 
 
 class BasicCyberGraphDefenseEnv(gym.Env):
@@ -103,6 +106,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         self._belief = np.zeros(_belief_size(config.belief_type, self.num_nodes), dtype=np.float64)
         self._step_count = 0
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
+        self._previous_attack_for_reward = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
 
     def reset(
@@ -122,6 +126,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         )
         self._belief = _initial_belief(self.config.belief_type, self.state_space, self._state)
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
+        self._previous_attack_for_reward = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
         return self._observation(), self._info(defense=np.zeros(self.num_nodes, dtype=np.int8))
 
@@ -133,6 +138,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         attack = self.attacker_policy.sample(self._state, defense, self._rng)
         previous_state = self._state.copy()
         previous_belief = self._belief.copy()
+        previous_attack = self._previous_attack_for_reward.copy()
         next_state, detected = _transition(
             state=self._state,
             attack=attack,
@@ -148,6 +154,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         self._state = next_state
         self._step_count += 1
         self._last_attack = attack
+        self._previous_attack_for_reward = attack.copy()
         self._last_observation = detected
 
         defender_reward, attacker_reward = _rewards(
@@ -156,7 +163,9 @@ class BasicCyberGraphDefenseEnv(gym.Env):
             attack=attack,
             defense=defense,
             defender_belief=previous_belief,
+            previous_attack=previous_attack,
             state_space=self.state_space,
+            adjacency=self.adjacency,
             config=self.config,
         )
         truncated = self._step_count >= self.config.max_steps
@@ -245,6 +254,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
         self._step_count = 0
         self._last_defense = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
+        self._previous_attack_for_reward = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
 
     def reset(
@@ -265,6 +275,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
         self._belief = _initial_belief(self.config.belief_type, self.state_space, self._state)
         self._last_defense = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
+        self._previous_attack_for_reward = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
         return self._observation(), self._info()
 
@@ -281,6 +292,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
         )
         previous_state = self._state.copy()
         previous_belief = self._belief.copy()
+        previous_attack = self._previous_attack_for_reward.copy()
         next_state, detected = _transition(
             state=self._state,
             attack=attack,
@@ -296,6 +308,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
         self._state = next_state
         self._step_count += 1
         self._last_attack = attack
+        self._previous_attack_for_reward = attack.copy()
         self._last_defense = defense
         self._last_observation = detected
 
@@ -305,7 +318,9 @@ class BasicCyberGraphAttackEnv(gym.Env):
             attack=attack,
             defense=defense,
             defender_belief=previous_belief,
+            previous_attack=previous_attack,
             state_space=self.state_space,
+            adjacency=self.adjacency,
             config=self.config,
         )
         truncated = self._step_count >= self.config.max_steps
@@ -370,6 +385,9 @@ def _validate_config(config: BasicCyberGraphDefenseConfig, num_nodes: int) -> No
         "defender_missed_high_belief_penalty": config.defender_missed_high_belief_penalty,
         "attacker_new_compromise_bonus": config.attacker_new_compromise_bonus,
         "attacker_owned_attack_penalty": config.attacker_owned_attack_penalty,
+        "attacker_frontier_attack_bonus": config.attacker_frontier_attack_bonus,
+        "attacker_discovery_attack_bonus": config.attacker_discovery_attack_bonus,
+        "attacker_repeat_attack_penalty": config.attacker_repeat_attack_penalty,
     }
     for name, value in shaping_values.items():
         if value < 0.0:
@@ -421,7 +439,9 @@ def _rewards(
     attack: np.ndarray,
     defense: np.ndarray,
     defender_belief: np.ndarray,
+    previous_attack: np.ndarray,
     state_space: np.ndarray,
+    adjacency: np.ndarray,
     config: BasicCyberGraphDefenseConfig,
 ) -> tuple[float, float]:
     defense_count = int(defense.sum())
@@ -440,6 +460,11 @@ def _rewards(
     reimaged_compromised = int(np.sum((previous_state == 1) & (defense == 1) & (next_state == 0)))
     newly_compromised = int(np.sum((previous_state == 0) & (next_state == 1)))
     owned_attacks = int(np.sum((previous_state == 1) & (attack == 1)))
+    clean_attacks = (previous_state == 0) & (attack == 1)
+    frontier_targets = _frontier_targets(previous_state, adjacency)
+    frontier_attacks = int(np.sum(clean_attacks & frontier_targets))
+    discovery_attacks = int(np.sum(clean_attacks & ~frontier_targets))
+    repeated_attacks = int(np.sum((previous_attack == 1) & (attack == 1)))
     node_belief = _node_belief(defender_belief, state_space, len(next_state))
     high_belief_reimaged = float(np.sum(node_belief * defense))
     missed_high_belief = int(np.sum((node_belief >= config.defender_high_belief_threshold) & (defense == 0)))
@@ -451,9 +476,19 @@ def _rewards(
     )
     attacker_reward += (
         config.attacker_new_compromise_bonus * newly_compromised
+        + config.attacker_frontier_attack_bonus * frontier_attacks
+        + config.attacker_discovery_attack_bonus * discovery_attacks
         - config.attacker_owned_attack_penalty * owned_attacks
+        - config.attacker_repeat_attack_penalty * repeated_attacks
     )
     return defender_reward, attacker_reward
+
+
+def _frontier_targets(previous_state: np.ndarray, adjacency: np.ndarray) -> np.ndarray:
+    if not np.any(previous_state == 1):
+        return np.zeros(len(previous_state), dtype=bool)
+    owned_neighbor_counts = adjacency @ previous_state.astype(np.float64)
+    return (previous_state == 0) & (owned_neighbor_counts > 0.0)
 
 
 def _node_belief(belief: np.ndarray, state_space: np.ndarray, num_nodes: int) -> np.ndarray:

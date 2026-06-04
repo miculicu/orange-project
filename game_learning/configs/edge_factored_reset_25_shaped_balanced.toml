@@ -28,6 +28,9 @@ defender_missed_high_belief_penalty = 0.06
 defender_high_belief_threshold = 0.8
 attacker_new_compromise_bonus = 0.70
 attacker_owned_attack_penalty = 0.70
+attacker_frontier_attack_bonus = 0.18
+attacker_discovery_attack_bonus = 0.06
+attacker_repeat_attack_penalty = 0.08
 
 [training]
 algorithm = "ppo"
