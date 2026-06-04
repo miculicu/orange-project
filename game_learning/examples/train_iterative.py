@@ -59,7 +59,7 @@ def main() -> None:
             game_config,
             attacker_policy=attacker_policy,
         )
-        defender_model = _make_ppo(experiment, defender_env, seed=seed)
+        defender_model = _make_ppo(experiment, defender_env, seed=seed, ent_coef=experiment.iterative.defender_ent_coef)
         defender_log_dir = iteration_dir / "logs" / "defender"
         defender_model.set_logger(configure(str(defender_log_dir), ["stdout", "csv", "json"]))
         defender_model.learn(total_timesteps=experiment.iterative.defender_timesteps)
@@ -93,7 +93,7 @@ def main() -> None:
             defender_policy=fixed_defender,
             belief_attacker_policy=attacker_policy,
         )
-        attacker_model = _make_ppo(experiment, attacker_env, seed=seed)
+        attacker_model = _make_ppo(experiment, attacker_env, seed=seed, ent_coef=experiment.iterative.attacker_ent_coef)
         attacker_log_dir = iteration_dir / "logs" / "attacker"
         attacker_model.set_logger(configure(str(attacker_log_dir), ["stdout", "csv", "json"]))
         attacker_model.learn(total_timesteps=experiment.iterative.attacker_timesteps)
@@ -143,7 +143,7 @@ def _maybe_evaluate_iteration(experiment, config_path: Path, iteration: int) -> 
     subprocess.run(command, check=True)
 
 
-def _make_ppo(experiment, env, seed: int | None) -> PPO:
+def _make_ppo(experiment, env, seed: int | None, ent_coef: float | None = None) -> PPO:
     return PPO(
         "MlpPolicy",
         env,
@@ -154,6 +154,7 @@ def _make_ppo(experiment, env, seed: int | None) -> PPO:
         n_steps=experiment.training.n_steps,
         batch_size=experiment.training.batch_size,
         gamma=experiment.training.gamma,
+        ent_coef=experiment.training.ent_coef if ent_coef is None else ent_coef,
     )
 
 

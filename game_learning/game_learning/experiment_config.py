@@ -39,6 +39,7 @@ class TrainingSpec:
     n_steps: int
     batch_size: int
     gamma: float
+    ent_coef: float
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ class IterativeSpec:
     defender_timesteps: int
     attacker_timesteps: int
     eval_every_iterations: int
+    defender_ent_coef: float | None
+    attacker_ent_coef: float | None
 
 
 @dataclass(frozen=True)
@@ -246,6 +249,7 @@ def _load_training_spec(training_data: dict[str, Any]) -> TrainingSpec:
         n_steps=int(training_data.get("n_steps", 2048)),
         batch_size=int(training_data.get("batch_size", 64)),
         gamma=float(training_data.get("gamma", 0.99)),
+        ent_coef=float(training_data.get("ent_coef", 0.0)),
     )
 
 
@@ -258,6 +262,8 @@ def _load_iterative_spec(
         defender_timesteps=int(iterative_data.get("defender_timesteps", training.total_timesteps)),
         attacker_timesteps=int(iterative_data.get("attacker_timesteps", training.total_timesteps)),
         eval_every_iterations=int(iterative_data.get("eval_every_iterations", 0)),
+        defender_ent_coef=_optional_float(iterative_data.get("defender_ent_coef")),
+        attacker_ent_coef=_optional_float(iterative_data.get("attacker_ent_coef")),
     )
 
 
