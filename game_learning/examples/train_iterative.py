@@ -119,6 +119,7 @@ def main() -> None:
             num_nodes=game_config.graph.number_of_nodes(),
             max_attack_nodes=game_config.max_attack_nodes,
             allow_full_attack=game_config.allow_full_attack,
+            observation_type=game_config.attacker_observation_type,
         )
         _maybe_evaluate_iteration(experiment, args.config, iteration)
 

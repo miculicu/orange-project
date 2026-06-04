@@ -53,6 +53,7 @@ class BasicCyberGraphDefenseConfig:
     attacker_frontier_attack_bonus: float = 0.0
     attacker_discovery_attack_bonus: float = 0.0
     attacker_repeat_attack_penalty: float = 0.0
+    attacker_observation_type: str = "state"
 
 
 class BasicCyberGraphDefenseEnv(gym.Env):
@@ -108,6 +109,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
         self._previous_attack_for_reward = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
+        self._last_cleared_owned = np.zeros(self.num_nodes, dtype=np.int8)
 
     def reset(
         self,
@@ -128,6 +130,8 @@ class BasicCyberGraphDefenseEnv(gym.Env):
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
         self._previous_attack_for_reward = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
+        if hasattr(self.attacker_policy, "reset"):
+            self.attacker_policy.reset()
         return self._observation(), self._info(defense=np.zeros(self.num_nodes, dtype=np.int8))
 
     def step(
@@ -150,6 +154,7 @@ class BasicCyberGraphDefenseEnv(gym.Env):
             edge_compromise_weight=self.config.edge_compromise_weight,
         )
 
+        cleared_owned = ((previous_state == 1) & (next_state == 0)).astype(np.int8)
         self._belief = self.belief_updater.update(self._belief, detected, defense)
         self._state = next_state
         self._step_count += 1
@@ -239,7 +244,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
             beta=self.beta,
             attacker_policy=belief_attacker_policy,
         )
-        self.observation_space = spaces.MultiBinary(self.num_nodes)
+        self.observation_space = spaces.MultiBinary(_attacker_observation_size(config.attacker_observation_type, self.num_nodes))
         self.attack_action_codec = BudgetedSubsetActionSpace(
             self.num_nodes,
             config.max_attack_nodes,
@@ -277,6 +282,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
         self._last_attack = np.zeros(self.num_nodes, dtype=np.int8)
         self._previous_attack_for_reward = np.zeros(self.num_nodes, dtype=np.int8)
         self._last_observation = np.zeros(self.num_nodes, dtype=np.int8)
+        self._last_cleared_owned = np.zeros(self.num_nodes, dtype=np.int8)
         return self._observation(), self._info()
 
     def step(
@@ -304,6 +310,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
             edge_compromise_weight=self.config.edge_compromise_weight,
         )
 
+        cleared_owned = ((previous_state == 1) & (next_state == 0)).astype(np.int8)
         self._belief = self.belief_updater.update(self._belief, detected, defense)
         self._state = next_state
         self._step_count += 1
@@ -311,6 +318,7 @@ class BasicCyberGraphAttackEnv(gym.Env):
         self._previous_attack_for_reward = attack.copy()
         self._last_defense = defense
         self._last_observation = detected
+        self._last_cleared_owned = cleared_owned
 
         defender_reward, attacker_reward = _rewards(
             previous_state=previous_state,
@@ -346,7 +354,12 @@ class BasicCyberGraphAttackEnv(gym.Env):
         return None
 
     def _observation(self) -> np.ndarray:
-        return self._state.copy()
+        return _attacker_observation(
+            self.config.attacker_observation_type,
+            self._state,
+            self._last_attack,
+            self._last_cleared_owned,
+        )
 
     def _info(self) -> dict:
         return _info(
@@ -369,6 +382,8 @@ def _validate_config(config: BasicCyberGraphDefenseConfig, num_nodes: int) -> No
         raise ValueError("initial_compromised_probability must be between 0 and 1.")
     if config.belief_type not in {"exact", "factored", "learned_gnn"}:
         raise ValueError("belief_type must be 'exact', 'factored', or 'learned_gnn'.")
+    if config.attacker_observation_type not in {"state", "state_previous_attack_cleared"}:
+        raise ValueError("attacker_observation_type must be 'state' or 'state_previous_attack_cleared'.")
     if config.belief_type == "learned_gnn" and not config.gnn_belief_model_path:
         raise ValueError("gnn_belief_model_path is required when belief_type='learned_gnn'.")
     if config.factored_attack_probability is not None and not (
@@ -394,6 +409,27 @@ def _validate_config(config: BasicCyberGraphDefenseConfig, num_nodes: int) -> No
             raise ValueError(f"{name} must be nonnegative.")
     if not 0.0 <= config.defender_high_belief_threshold <= 1.0:
         raise ValueError("defender_high_belief_threshold must be between 0 and 1.")
+
+
+def _attacker_observation_size(observation_type: str, num_nodes: int) -> int:
+    if observation_type == "state":
+        return num_nodes
+    if observation_type == "state_previous_attack_cleared":
+        return 3 * num_nodes
+    raise ValueError(f"Unsupported attacker_observation_type: {observation_type!r}")
+
+
+def _attacker_observation(
+    observation_type: str,
+    state: np.ndarray,
+    previous_attack: np.ndarray,
+    cleared_owned: np.ndarray,
+) -> np.ndarray:
+    if observation_type == "state":
+        return state.copy()
+    if observation_type == "state_previous_attack_cleared":
+        return np.concatenate([state, previous_attack, cleared_owned]).astype(np.int8)
+    raise ValueError(f"Unsupported attacker_observation_type: {observation_type!r}")
 
 
 def _transition(

@@ -199,6 +199,7 @@ def build_basic_cyber_graph_defense_config(
         attacker_frontier_attack_bonus=float(params.get("attacker_frontier_attack_bonus", 0.0)),
         attacker_discovery_attack_bonus=float(params.get("attacker_discovery_attack_bonus", 0.0)),
         attacker_repeat_attack_penalty=float(params.get("attacker_repeat_attack_penalty", 0.0)),
+        attacker_observation_type=str(params.get("attacker_observation_type", "state")),
     )
 
 
